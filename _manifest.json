@@ -1,0 +1,50 @@
+{
+  "manifest_version": 2,
+  "id": "cssqy.meal-card",
+  "version": "1.0.0",
+  "name": "麦麦饭卡",
+  "description": "额度/用量查询与播报：LLM 工具 + /饭卡 指令 + 定时播报 + 条件警报；支持多个平台与自定义平台（内置 MiniMax TokenPlan）",
+  "author": {
+    "name": "CSSQY",
+    "url": "https://github.com/CSSQY"
+  },
+  "license": "GPL-v3.0-or-later",
+  "urls": {
+    "repository": "https://github.com/CSSQY/mai_meal_card",
+    "homepage": "https://github.com/CSSQY/mai_meal_card",
+    "documentation": "https://github.com/CSSQY/mai_meal_card/blob/main/README.md",
+    "issues": "https://github.com/CSSQY/mai_meal_card/issues"
+  },
+  "host_application": {
+    "min_version": "1.3.0",
+    "max_version": "1.3.99"
+  },
+  "sdk": {
+    "min_version": "2.10.0",
+    "max_version": "2.99.99"
+  },
+  "changelog": "CHANGELOG.md",
+  "dependencies": [
+    {
+      "type": "python_package",
+      "name": "pillow",
+      "version_spec": ">=12.3.0"
+    }
+  ],
+  "capabilities": [
+    "send.text",
+    "send.image",
+    "chat.get_stream_by_group_id",
+    "chat.get_stream_by_user_id",
+    "chat.open_session",
+    "config.get",
+    "llm.generate",
+    "render.html2png"
+  ],
+  "i18n": {
+    "default_locale": "zh-CN",
+    "supported_locales": [
+      "zh-CN"
+    ]
+  }
+}
