@@ -6,7 +6,7 @@
 - 插件 ID：`cssqy.meal-card`
 - 目录：`plugins/mai_meal_card/`
 - 宿主版本要求：`1.3.0 ~ 1.3.99`；SDK 要求：`2.10.0 ~ 2.99.99`
-- 内置平台：**MiniMax TokenPlan**；另支持**自定义平台**
+- 内置平台：**MiniMax TokenPlan**、**DeepSeek 开放平台**；另支持**自定义平台**
 
 ## 1. 功能特性
 
@@ -15,6 +15,8 @@
 - **支持多个平台**：可同时配置多个平台，查询时逐个取值；指标 id 带平台前缀
   （如 `minimax.interval_remaining`），条件与权限都按这个 id 书写。
 - **支持自定义平台**：平台类型选 `custom` 后自行填写接口地址、鉴权、取值表达式等，无需等待内置适配。
+- **支持 DeepSeek 开放平台**：填 API Key 即可查账户总余额 / 赠金余额 / 充值余额（金额带币种）。
+- **多平台分组展示**：同时查询多个平台时，图片、文本与 LLM 转述都会按平台分组并标注平台名，一眼分清数据来源。
 - **平台适配器架构**：平台差异全部收敛在 `platforms/` 目录，新增内置平台只需实现一个适配器并注册。
 - **LLM 工具 `query_meal_card`**：让智能体查询额度 / 重置倒计时，可按指标与类型过滤。
 - **`/饭卡` 指令**：可选择模板文本 / LLM 风格化转述 / 图片渲染，支持指定指标。
@@ -98,6 +100,19 @@
 
 自定义平台固定产出 `value` 指标（指标 id 为 `<平台标识>.value`）与 `raw`（原始响应）。
 
+### 4.5 配置一个 DeepSeek 平台
+
+在「平台」标签页的 `[platformN]` 里：
+
+| 字段 | 填什么 |
+|---|---|
+| 平台类型 | `deepseek` |
+| 平台标识 | 建议填 `deepseek`（会作为指标 id 前缀，如 `deepseek.balance_total`） |
+| API 密钥 | DeepSeek 开放平台 API Key（`sk-` 开头，在开放平台控制台创建） |
+
+> 查询的是账户余额（总余额 / 赠金 / 充值余额），接口只读、不产生任何费用；
+> 基地址默认 `https://api.deepseek.com`，一般无需填写。
+
 ## 5. 使用示例
 
 ### 5.1 `/饭卡` 指令
@@ -161,7 +176,23 @@
 > `general` 条目代表「通用/总体额度池」，已由「5h窗口剩余 / 本周窗口剩余」表达，
 > 因此**不再单独产出** `model_general_remaining`（避免与总体指标重复）。
 
-### 6.2 自定义平台（平台类型 `custom`）
+### 6.2 DeepSeek 开放平台（平台类型 `deepseek`）
+
+接口：`GET https://api.deepseek.com/user/balance`（官方文档「查询余额」）。指标 id 为 `<平台标识>.<指标>`：
+
+| 指标 id | 含义 | 类型 |
+|---|---|---|
+| `deepseek.balance_total` | 账户总余额（含赠金与充值余额） | 计数（单位=币种） |
+| `deepseek.balance_granted` | 未过期的赠金余额 | 计数 |
+| `deepseek.balance_topped_up` | 充值余额 | 计数 |
+| `deepseek.available` | 账户可用状态（可用 / 不可用） | 文本 |
+| `deepseek.raw` | 原始响应摘要（排查用） | 文本 |
+
+> 金额单位取响应里的币种（`CNY` / `USD`）。响应含多个币种时，第一条按上表产出，
+> 其余条目追加币种后缀（如 `deepseek.balance_total_usd`）。
+> `available` 是文本指标、不参与条件表达式；做余额告警请用 `deepseek.balance_total < 10` 这类数值条件。
+
+### 6.3 自定义平台（平台类型 `custom`）
 
 | 指标 id | 含义 |
 |---|---|
@@ -183,14 +214,14 @@
 | `platform_count` | int | `1` | 平台槽位数量（改大需重载一次插件） |
 | `broadcast_count` | int | `1` | 播报槽位数量（改大需重载一次插件） |
 | `alert_count` | int | `1` | 警报槽位数量（改大需重载一次插件） |
-| `config_version` | str | `"1.0.0"` | 配置版本（请勿手改） |
+| `config_version` | str | `"1.1.1"` | 配置版本（请勿手改） |
 
 ### 7.2 平台槽位 `[platformN]`
 
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `enabled` | bool | `true` | 是否启用此平台 |
-| `adapter` | str | `"minimax"` | 平台类型：`minimax` / `custom` |
+| `adapter` | str | `"minimax"` | 平台类型：`minimax` / `deepseek` / `custom` |
 | `key` | str | `""` | 平台标识（指标 id 前缀）；留空用 `platformN` |
 | `name` | str | `""` | 显示名称；留空用平台类型名称 |
 
@@ -199,8 +230,17 @@
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `region` | str | `"cn"` | `cn`=国内版；`global`=国际版（选错会 401） |
-| `api_key` | str | `""` | TokenPlan 订阅密钥 |
+| `api_key` | str | `""` | TokenPlan 订阅密钥（`sk-cp` 开头） |
 | `base_url` | str | `""` | 高级：自定义接口基地址，留空按区域自动选择 |
+
+**平台类型 = `deepseek` 时：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `api_key` | str | `""` | DeepSeek 开放平台 API Key（`sk-` 开头） |
+| `base_url` | str | `""` | 高级：留空用 `https://api.deepseek.com` |
+
+> `region` 仅对 `minimax` 生效；`api_key` 与 `base_url` 为两种内置平台共用的字段。
 
 **平台类型 = `custom` 时：**
 
@@ -355,8 +395,8 @@
 |---|---|
 | `{date}` | 报告生成时间 |
 | `{count}` | 指标数量 |
-| `{items}` | 全部指标的多行文本区块 |
-| `{unavailable}` | 本次失败的指标清单 |
+| `{items}` | 全部指标的多行文本区块（**多平台时按 `【平台名】` 分组**，单平台不加分组标题） |
+| `{unavailable}` | 本次失败的指标清单（多平台时同样按平台分组） |
 | `{platforms}` | 平台清单（`{platform}` 为其别名，取第一个平台） |
 | `{<平台标识>.<指标id>}` | 单个指标的展示值 |
 | `{<平台标识>.<指标id>_raw}` | 单个指标的纯数值 |
@@ -367,6 +407,9 @@
 - 只有一个平台时，额外提供不带前缀的简写 `{指标id}`。
 - 文本模板用**单花括号** `{...}`；图片模板用**双花括号** `{{...}}`，
   另有 `{{items_html}}`、`{{title}}`、`{{font_css}}`、`{{font_static}}`。
+- **`{{items_html}}`**：多平台时按平台分组渲染为 `.platform-group` 块（带平台名标题
+  `.platform-title` 与左侧色条，样式由模板 CSS 提供）；单平台时为扁平的 `<br>` 列表。
+  自定义图片模板可自行给 `.platform-group` / `.platform-title` / `.platform-items` 写样式。
 - **`{{title}}`**：报告标题，取宿主机器人昵称拼成「**{机器人昵称}的饭卡**」
   （读取宿主 `bot.nickname`；读不到时回退「麦麦饭卡」）。
 - 未知占位符会被置空并记一条 warning。
@@ -394,6 +437,8 @@
   **不会静默填 0**。
 - 额度受「5 小时滚动窗口 + 周窗口」控制，未用完不结转；文本/图像/语音共享同一份额度。
 - 订阅密钥与按量付费 API Key **不通用**；区域选错会返回 401。
+- **DeepSeek 适配只读余额**：仅查询账户余额（`GET /user/balance`），不产生任何费用；
+  余额不足时响应里 `is_available=false`（对应指标「账户可用状态」）。
 - **槽位数量改动需重载**：数量在插件加载时确定，改大后需「禁用再启用」插件（或重启）才生成新槽位。
 - 播报漏过的时刻不补发、执行失败不重试（仅记日志）；警报在每个间隔检查点、条件为真时投递
   （不额外去重）。
@@ -405,6 +450,7 @@
 - **配置页看不到 `platform2`？** 先把 `[plugin].platform_count` 改成 2，保存后「禁用再启用」插件。
 - **提示「未填写 MiniMax 订阅密钥」？** 去对应平台槽位的「订阅密钥」填 TokenPlan 订阅密钥。
 - **返回 401？** 区域与套餐购买地区不一致，或用了按量付费的普通 API Key。
+- **DeepSeek 返回 401？** 确认「平台类型」选的是 `deepseek`，且填的是开放平台 API Key（`sk-` 开头、未过期）。
 - **条件里写 `interval_remaining` 不生效？** 多平台时指标 id 带前缀，请写 `minimax.interval_remaining`。
 - **`/饭卡` 没反应？** 检查 `[command].enabled`，以及 `[command_permission]` 是否放行当前群/用户。
 - **LLM 说没权限？** `[llm_tool_permission]` 默认白名单，把群号填进 `whitelist_groups`，
@@ -453,6 +499,7 @@
 | `config.py` | 配置节 + 槽位类生成（数量控制）+ 任务/覆盖解析 |
 | `platforms/base.py` | 适配器接口与 `MetricValue` 数据类 |
 | `platforms/minimax.py` | MiniMax TokenPlan 适配器 |
+| `platforms/deepseek.py` | DeepSeek 开放平台适配器（账户余额） |
 | `platforms/custom.py` | 自定义平台适配器 |
 | `platforms/__init__.py` | 平台注册表 |
 | `query_engine.py` | 多平台调度、指标过滤与展示格式化 |
@@ -474,7 +521,7 @@
 1. 把整个 `mai_meal_card/` 目录放到 MaiBot 的 `plugins/` 下（保持目录名不变）。
 2. 启动 / 重启 MaiBot；插件在插件运行时（Runner）进程中被自动发现并加载。
 3. 首次加载会按配置模型自动生成 `plugins/mai_meal_card/config.toml`；之后修改该文件即热更新。
-4. 在配置页「平台」标签页填写区域与订阅密钥。
+4. 在配置页「平台」标签页选择平台类型并填写密钥（minimax：区域 + TokenPlan 订阅密钥；deepseek：API Key）。
 5. 群里发 `/饭卡` 验证；让 LLM 调用 `query_meal_card` 验证工具。
 6. 把 `[plugin].broadcast_count` / `alert_count` 改成需要的数量 → 保存 → 重载插件，
    再到对应标签页填写任务，验证到点播报与命中条件警报。

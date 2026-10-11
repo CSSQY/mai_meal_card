@@ -1,8 +1,8 @@
 """图片 HTML 模板：内置模板 + 用户新增模板（无需改代码）的加载与占位符填充。
 
 模板占位符使用**双花括号** ``{{键}}``（避免与 HTML/CSS 的花括号冲突），键名与文本模板一致，
-另有 ``{{items_html}}``（多行查询项，用 ``<br>`` 分隔）、``{{title}}``（报告标题，取宿主机器人昵称）
-与 ``{{font_css}}`` / ``{{font_static}}``（由字体服务组注入）。
+另有 ``{{items_html}}``（多行查询项；多平台时按平台分组为 ``.platform-group`` 块）、
+``{{title}}``（报告标题，取宿主机器人昵称）与 ``{{font_css}}`` / ``{{font_static}}``（由字体服务组注入）。
 """
 
 from dataclasses import dataclass
@@ -15,7 +15,7 @@ import re
 
 from .config import MealCardConfig
 from .platforms import MetricValue
-from .text_report import build_placeholders
+from .text_report import build_placeholders, group_by_platform, has_multiple_platforms
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +117,25 @@ async def resolve_report_title(ctx: Any) -> str:
     return f"{nickname}{_TITLE_SUFFIX}" if nickname else DEFAULT_TITLE
 
 
+def _build_items_html(visible: Sequence[MetricValue]) -> str:
+    """构造图片里的指标区块。
+
+    **多平台时按平台分组**：每组是一个 ``.platform-group`` 块，带平台名标题
+    （``.platform-title``）与左侧分隔条（由模板 CSS 提供），避免不同平台的数据混在一起；
+    单平台时保持扁平的 ``<br>`` 列表（观感与旧版一致）。
+    """
+
+    if not has_multiple_platforms(visible):
+        return "<br>".join(html.escape(f"{metric.name}：{metric.display}") for metric in visible)
+
+    blocks: List[str] = []
+    for name, metrics in group_by_platform(visible):
+        lines = "<br>".join(html.escape(f"{metric.name}：{metric.display}") for metric in metrics)
+        title = f'<div class="platform-title">{html.escape(name)}</div>' if name else ""
+        blocks.append(f'<div class="platform-group">{title}<div class="platform-items">{lines}</div></div>')
+    return "".join(blocks)
+
+
 def build_html(
     ctx: Any,
     template_name: str,
@@ -155,7 +174,7 @@ def build_html(
         # 若剔除后什么都不剩（例如响应无法解析、只有原始响应），则保留原始结果，避免图上一片空白。
         visible = list(results)
     values: Dict[str, str] = build_placeholders(visible, config, platform_name)
-    items_html = "<br>".join(html.escape(f"{metric.name}：{metric.display}") for metric in visible)
+    items_html = _build_items_html(visible)
     escaped: Dict[str, str] = {key: html.escape(value) for key, value in values.items()}
     escaped["items_html"] = items_html
     escaped["title"] = html.escape(str(title or DEFAULT_TITLE))

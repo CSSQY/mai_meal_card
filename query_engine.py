@@ -193,7 +193,9 @@ def _filter_by_keys(metrics: Sequence[MetricValue], keys: Sequence[str]) -> List
 
     wanted = set(requested)
     available = {metric.qualified_id for metric in metrics}
-    for key in sorted(wanted - available):
+    bare_ids = {metric.id for metric in metrics}
+    # 简写 id（不带平台前缀）也是合法写法，只有完整 id 与简写都匹配不到才算「不存在」。
+    for key in sorted(wanted - available - bare_ids):
         logger.warning("[meal_card] 指标不存在，已跳过：%s", key)
     return [
         metric

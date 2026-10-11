@@ -9,7 +9,7 @@
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import logging
 import re
@@ -42,6 +42,31 @@ def _platform_names(results: Sequence[MetricValue]) -> List[str]:
     return names
 
 
+def has_multiple_platforms(results: Sequence[MetricValue]) -> bool:
+    """判断结果是否来自多个平台（用于决定是否按平台分组展示）。"""
+
+    return len({metric.platform_key for metric in results if metric.platform_key}) > 1
+
+
+def group_by_platform(results: Sequence[MetricValue]) -> List[Tuple[str, List[MetricValue]]]:
+    """按平台把指标分组（保持首次出现顺序）。
+
+    Returns:
+        List[Tuple[str, List[MetricValue]]]: ``(平台显示名, 该平台的指标)`` 列表；
+        归属不到平台的指标会归入名称为空的组。
+    """
+
+    groups: List[Tuple[str, List[MetricValue]]] = []
+    positions: Dict[str, int] = {}
+    for metric in results:
+        key = metric.platform_key or metric.platform_name or ""
+        if key not in positions:
+            positions[key] = len(groups)
+            groups.append((metric.platform_name or "", []))
+        groups[positions[key]][1].append(metric)
+    return groups
+
+
 def build_placeholders(
     results: Sequence[MetricValue],
     config: MealCardConfig,
@@ -61,16 +86,25 @@ def build_placeholders(
     placeholders["platforms"] = joined
     placeholders["platform"] = names[0] if names else platform_name
 
-    multiple = len({metric.platform_key for metric in results if metric.platform_key}) > 1
+    groups = group_by_platform(results)
+    multiple = has_multiple_platforms(results)
     item_lines: List[str] = []
     failed_lines: List[str] = []
-    for metric in results:
-        prefix = f"{metric.platform_name} · " if multiple and metric.platform_name else ""
-        if metric.ok:
-            item_lines.append(f"{prefix}{metric.name}：{metric.display}")
-        else:
-            item_lines.append(f"{prefix}{metric.name}：查询失败")
-            failed_lines.append(f"{prefix}{metric.name}：{metric.error}")
+    for name, metrics in groups:
+        header = f"【{name}】" if multiple and name else ""
+        if header:
+            if item_lines:
+                item_lines.append("")
+            item_lines.append(header)
+        for metric in metrics:
+            item_lines.append(f"{metric.name}：{metric.display}" if metric.ok else f"{metric.name}：查询失败")
+    for name, metrics in groups:
+        failures = [metric for metric in metrics if not metric.ok]
+        if not failures:
+            continue
+        if multiple and name:
+            failed_lines.append(f"【{name}】")
+        failed_lines.extend(f"{metric.name}：{metric.error}" for metric in failures)
 
     placeholders["items"] = "\n".join(item_lines)
     placeholders["unavailable"] = "\n".join(failed_lines)
@@ -114,18 +148,21 @@ def render_text_report(
 
 
 def build_data_block(results: Sequence[MetricValue], platform_name: str = "") -> str:
-    """构造给 LLM 的纯数据块。"""
+    """构造给 LLM 的纯数据块（多平台时按平台分组）。"""
 
     names = _platform_names(results)
     if not names and platform_name:
         names = [platform_name]
+    multiple = has_multiple_platforms(results)
     lines: List[str] = []
     if names:
         lines.append(f"平台：{'、'.join(names)}")
-    for metric in results:
-        prefix = f"{metric.platform_name} · " if len(names) > 1 and metric.platform_name else ""
-        if metric.ok:
-            lines.append(f"- {prefix}{metric.name}：{metric.display}")
-        else:
-            lines.append(f"- {prefix}{metric.name}：查询失败（{metric.error}）")
+    for name, metrics in group_by_platform(results):
+        if multiple and name:
+            lines.append(f"【{name}】")
+        for metric in metrics:
+            if metric.ok:
+                lines.append(f"- {metric.name}：{metric.display}")
+            else:
+                lines.append(f"- {metric.name}：查询失败（{metric.error}）")
     return "\n".join(lines)

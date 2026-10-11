@@ -26,7 +26,7 @@ from pydantic import Field, create_model
 logger = logging.getLogger(__name__)
 
 # 插件 / 配置版本号（plugin.py、_manifest.json 与本文件保持一致）。
-PLUGIN_VERSION = "1.0.0"
+PLUGIN_VERSION = "1.1.1"
 
 DEFAULT_TEXT_TEMPLATE = "🍚 饭卡状态（{date}）\n{items}\n{unavailable}"
 
@@ -157,12 +157,13 @@ class PlatformSlotConfig(PluginConfigBase):
         description="是否启用此平台（关闭只是临时停用、不清空配置）",
         json_schema_extra={"label": "启用此平台", "hint": "关闭后此平台不参与查询"},
     )
-    adapter: Literal["minimax", "custom"] = Field(
+    adapter: Literal["minimax", "deepseek", "custom"] = Field(
         default="minimax",
-        description="平台类型：minimax=内置 MiniMax TokenPlan 适配；custom=自定义平台（自行填写地址与取值规则）",
+        description="平台类型：minimax=内置 MiniMax TokenPlan 适配；deepseek=内置 DeepSeek 开放平台适配（余额查询）；custom=自定义平台（自行填写地址与取值规则）",
         json_schema_extra={
             "label": "平台类型",
-            "hint": "minimax=内置适配（只需选区域 + 填订阅密钥）；custom=自定义平台（自行填写接口地址、鉴权与取值表达式）",
+            "hint": "minimax=内置适配（选区域 + 填 TokenPlan 订阅密钥）；deepseek=内置适配（填 API Key 即可查余额）；"
+            "custom=自定义平台（自行填写接口地址、鉴权与取值表达式）",
         },
     )
     key: str = Field(
@@ -191,21 +192,23 @@ class PlatformSlotConfig(PluginConfigBase):
     )
     api_key: str = Field(
         default="",
-        description="MiniMax TokenPlan 订阅密钥（sk-cp 开头）；与按量付费的普通 API Key 不通用",
+        description="平台密钥：minimax 填 TokenPlan 订阅密钥（sk-cp 开头）；deepseek 填开放平台 API Key（sk- 开头）",
         json_schema_extra={
-            "label": "订阅密钥（MiniMax）",
-            "hint": "仅「平台类型=minimax」时生效：填 TokenPlan 订阅密钥（不是按量付费的 API Key）",
+            "label": "API 密钥（minimax / deepseek）",
+            "hint": "「平台类型=minimax」填 TokenPlan 订阅密钥（sk-cp 开头，与按量付费 API Key 不通用）；"
+            "「平台类型=deepseek」填开放平台 API Key（sk- 开头）",
             "x-widget": "password",
-            "placeholder": "sk-cp-…",
+            "placeholder": "sk-cp-… 或 sk-…",
         },
     )
     base_url: str = Field(
         default="",
-        description="MiniMax 接口基地址覆盖；留空则按「区域」自动选择官方地址",
+        description="接口基地址覆盖（minimax / deepseek 通用）；留空则用官方地址",
         json_schema_extra={
-            "label": "自定义基地址（MiniMax）",
-            "hint": "仅「平台类型=minimax」时生效：一般留空；仅在官方域名变更或走自建代理时才需要填",
-            "placeholder": "https://www.minimax.cn",
+            "label": "自定义基地址（minimax / deepseek）",
+            "hint": "一般留空：minimax 按「区域」自动选择官方地址、deepseek 默认 https://api.deepseek.com；"
+            "仅在官方域名变更或走自建代理时才需要填",
+            "placeholder": "https://api.deepseek.com",
         },
     )
 

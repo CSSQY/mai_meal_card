@@ -1,9 +1,9 @@
 {
   "manifest_version": 2,
   "id": "cssqy.mai-meal-card",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "name": "麦麦饭卡",
-  "description": "额度/用量查询与播报：LLM 工具 + /饭卡 指令 + 定时播报 + 条件警报；支持多个平台与自定义平台（内置 MiniMax TokenPlan）",
+  "description": "额度/用量查询与播报：LLM 工具 + /饭卡 指令 + 定时播报 + 条件警报；支持多个平台与自定义平台（内置 MiniMax TokenPlan、DeepSeek 开放平台）",
   "author": {
     "name": "CSSQY",
     "url": "https://github.com/CSSQY"
