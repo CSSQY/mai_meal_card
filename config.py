@@ -26,7 +26,7 @@ from pydantic import Field, create_model
 logger = logging.getLogger(__name__)
 
 # 插件 / 配置版本号（plugin.py、_manifest.json 与本文件保持一致）。
-PLUGIN_VERSION = "1.1.1"
+PLUGIN_VERSION = "1.1.2"
 
 DEFAULT_TEXT_TEMPLATE = "🍚 饭卡状态（{date}）\n{items}\n{unavailable}"
 
@@ -782,6 +782,20 @@ class RenderSection(PluginConfigBase):
             "label": "图片模板",
             "hint": "填 simple / dark / card，或用户模板目录里新增的模板名；内置模板数据相同、只是配色排版不同",
             "placeholder": "simple",
+        },
+    )
+    show_footer: bool = Field(
+        default=True,
+        description="是否在图片底部显示页脚",
+        json_schema_extra={"label": "显示页脚", "hint": "关闭后图片不再显示底部页脚（默认「由麦麦饭卡插件渲染」）"},
+    )
+    footer_text: str = Field(
+        default="由麦麦饭卡插件渲染",
+        description="图片底部页脚文案；留空则不显示页脚",
+        json_schema_extra={
+            "label": "页脚文案",
+            "hint": "仅「显示页脚」开启且此处置空时才会隐藏；可自定义成任意文字（如留空则不显示）",
+            "placeholder": "由麦麦饭卡插件渲染",
         },
     )
     image_format: Literal["png", "jpeg"] = Field(

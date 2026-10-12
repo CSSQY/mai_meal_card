@@ -25,6 +25,7 @@
 - **两组独立权限**：LLM 工具查询权限 与 `/饭卡` 指令查询权限，各含黑白名单 + 放行指标 + 每对话覆盖。
 - **三种呈现**：文本模板（占位符）、LLM 风格化转述（宿主模型组或自定义 [OI] 兼容服务）、
   图片渲染（HTML 模板 + 占位符，可添加自定义模板文件）。
+- **图片页脚可配置**：可关闭图片底部页脚，或自定义页脚文案（默认「由麦麦饭卡插件渲染」）。
 
 ## 2. 安装与启用
 
@@ -214,7 +215,7 @@
 | `platform_count` | int | `1` | 平台槽位数量（改大需重载一次插件） |
 | `broadcast_count` | int | `1` | 播报槽位数量（改大需重载一次插件） |
 | `alert_count` | int | `1` | 警报槽位数量（改大需重载一次插件） |
-| `config_version` | str | `"1.1.1"` | 配置版本（请勿手改） |
+| `config_version` | str | `"1.1.2"` | 配置版本（请勿手改） |
 
 ### 7.2 平台槽位 `[platformN]`
 
@@ -368,6 +369,8 @@
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `template_name` | str | `"simple"` | 图片模板：`simple` / `dark` / `card`，或用户模板名 |
+| `show_footer` | bool | `true` | 是否显示图片底部页脚 |
+| `footer_text` | str | `"由麦麦饭卡插件渲染"` | 页脚文案；关闭「显示页脚」或此处置空则不显示页脚 |
 | `image_format` | str | `"png"` | `png` 或 `jpeg` |
 | `jpeg_quality` | int | `90` | JPEG 质量（1~100） |
 | `resolution_scale` | float | `2.0` | 分辨率等级（1.0~4.0） |
@@ -406,12 +409,15 @@
 
 - 只有一个平台时，额外提供不带前缀的简写 `{指标id}`。
 - 文本模板用**单花括号** `{...}`；图片模板用**双花括号** `{{...}}`，
-  另有 `{{items_html}}`、`{{title}}`、`{{font_css}}`、`{{font_static}}`。
+  另有 `{{items_html}}`、`{{title}}`、`{{footer}}`、`{{font_css}}`、`{{font_static}}`。
 - **`{{items_html}}`**：多平台时按平台分组渲染为 `.platform-group` 块（带平台名标题
   `.platform-title` 与左侧色条，样式由模板 CSS 提供）；单平台时为扁平的 `<br>` 列表。
   自定义图片模板可自行给 `.platform-group` / `.platform-title` / `.platform-items` 写样式。
 - **`{{title}}`**：报告标题，取宿主机器人昵称拼成「**{机器人昵称}的饭卡**」
   （读取宿主 `bot.nickname`；读不到时回退「麦麦饭卡」）。
+- **`{{footer}}`**：图片页脚文案，取 `[render].footer_text`；关闭 `[render].show_footer`
+  或文案留空时，模板里的页脚整行会被移除（不留空白）。自定义模板请把页脚写成
+  `<div class="footer">{{footer}}</div>`，否则该开关不生效。
 - 未知占位符会被置空并记一条 warning。
 - **图片不展示「原始响应」**：成功的 `raw` 指标（原始响应摘要）不会出现在图片里；
   失败指标照常保留，便于在图上看到失败原因。文本模板仍会包含 `raw`。

@@ -2,7 +2,8 @@
 
 模板占位符使用**双花括号** ``{{键}}``（避免与 HTML/CSS 的花括号冲突），键名与文本模板一致，
 另有 ``{{items_html}}``（多行查询项；多平台时按平台分组为 ``.platform-group`` 块）、
-``{{title}}``（报告标题，取宿主机器人昵称）与 ``{{font_css}}`` / ``{{font_static}}``（由字体服务组注入）。
+``{{title}}``（报告标题，取宿主机器人昵称）、``{{footer}}``（页脚，可在渲染配置里开关与自定义文案，
+关闭或留空时整行移除）与 ``{{font_css}}`` / ``{{font_static}}``（由字体服务组注入）。
 """
 
 from dataclasses import dataclass
@@ -28,6 +29,12 @@ DEFAULT_TITLE = "麦麦饭卡"
 
 _TITLE_SUFFIX = "的饭卡"
 """标题后缀：最终标题为「{机器人昵称}的饭卡」。"""
+
+DEFAULT_FOOTER = "由麦麦饭卡插件渲染"
+"""页脚默认文案（宿主配置未提供或读取失败时使用）。"""
+
+_FOOTER_HTML = '    <div class="footer">{{footer}}</div>\n'
+"""页脚行占位文本：开启页脚时替换为模板里的 ``{{footer}}``，关闭时移除整行避免留白。"""
 
 
 @dataclass(frozen=True)
@@ -169,6 +176,12 @@ def build_html(
 
     template_text = path.read_text(encoding="utf-8")
 
+    # 页脚：关闭或文案留空时，把模板里的整行页脚删掉，避免留下空白（而不是只清空文本）。
+    show_footer = bool(getattr(config.render, "show_footer", True))
+    footer_text = str(getattr(config.render, "footer_text", DEFAULT_FOOTER) or "").strip()
+    if not (show_footer and footer_text):
+        template_text = template_text.replace(_FOOTER_HTML, "")
+
     visible = [metric for metric in results if not (metric.id == "raw" and metric.ok)]
     if not visible:
         # 若剔除后什么都不剩（例如响应无法解析、只有原始响应），则保留原始结果，避免图上一片空白。
@@ -178,6 +191,7 @@ def build_html(
     escaped: Dict[str, str] = {key: html.escape(value) for key, value in values.items()}
     escaped["items_html"] = items_html
     escaped["title"] = html.escape(str(title or DEFAULT_TITLE))
+    escaped["footer"] = html.escape(footer_text)
     escaped["font_css"] = font_service.css_base
     escaped["font_static"] = font_service.static_base
 
