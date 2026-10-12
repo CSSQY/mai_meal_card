@@ -3,7 +3,7 @@
 
 > 额度 / 用量查询与播报：LLM 工具 + `/饭卡` 指令 + 定时播报 + 条件警报。
 
-- 插件 ID：`cssqy.meal-card`
+- 插件 ID：`cssqy.mai-meal-card`
 - 目录：`plugins/mai_meal_card/`
 - 宿主版本要求：`1.3.0 ~ 1.3.99`；SDK 要求：`2.10.0 ~ 2.99.99`
 - 内置平台：**MiniMax TokenPlan**、**DeepSeek 开放平台**；另支持**自定义平台**
