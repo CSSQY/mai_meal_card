@@ -1,0 +1,211 @@
+{
+  "schema_version": 2,
+  "pages": [
+    {
+      "id": "mealcard",
+      "mode": "declarative",
+      "title": "麦麦饭卡",
+      "description": "展示各平台当前额度与用量、按检查周期记录的历史趋势曲线（平滑曲线）与最近采样记录。数据来自插件「记录与统计」配置，可在左侧插件配置页调整检查周期与保留策略。",
+      "placement": "sidebar",
+      "icon": "chart",
+      "queries": {
+        "summary": { "api": "webui_summary", "version": "1" },
+        "current": { "api": "webui_current", "version": "1" },
+        "chart": {
+          "api": "webui_chart",
+          "version": "1",
+          "parameters": {
+            "metric": { "type": "string", "required": false, "max_length": 200 }
+          }
+        },
+        "curves": { "api": "webui_curves", "version": "1" },
+        "history": { "api": "webui_history", "version": "1" }
+      },
+      "actions": {
+        "apply": {
+          "api": "webui_apply",
+          "version": "1",
+          "parameters": {
+            "metric": { "type": "string", "required": false, "max_length": 200 }
+          }
+        },
+        "sample": { "api": "webui_sample", "version": "1" },
+        "clear": {
+          "api": "webui_clear",
+          "version": "1",
+          "confirmation": "确认清空麦麦饭卡的历史记录？此操作只删除本插件记录的历史采样，不影响各平台的真实额度与用量。"
+        }
+      },
+      "content": [
+        {
+          "type": "grid",
+          "columns": 4,
+          "children": [
+            { "type": "stat", "label": "记录状态", "value": { "source": "summary", "field": "status" } },
+            { "type": "stat", "label": "采样点数", "value": { "source": "summary", "field": "sample_count" } },
+            { "type": "stat", "label": "检查周期（颗粒度）", "value": { "source": "summary", "field": "interval" } },
+            { "type": "stat", "label": "记录文件", "value": { "source": "summary", "field": "file_size" } }
+          ]
+        },
+        {
+          "type": "card",
+          "label": "记录概况",
+          "children": [
+            { "type": "text", "label": "记录区间", "value": { "source": "summary", "field": "span" } },
+            { "type": "text", "label": "保留策略", "value": { "source": "summary", "field": "retention" } },
+            { "type": "text", "label": "默认曲线指标", "value": { "source": "summary", "field": "auto_metric" } },
+            { "type": "text", "label": "记录存储", "value": { "source": "summary", "field": "storage_ready" } }
+          ]
+        },
+        {
+          "type": "card",
+          "label": "当前额度与用量",
+          "children": [
+            { "type": "text", "label": "采样时间", "value": { "source": "current", "field": "updated" } },
+            {
+              "type": "table",
+              "value": { "source": "current", "field": "rows" },
+              "columns": [
+                { "field": "platform", "label": "平台" },
+                { "field": "name", "label": "指标" },
+                { "field": "metric", "label": "指标 id" },
+                { "field": "value", "label": "当前值" }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "label": "趋势曲线（平滑）",
+          "children": [
+            {
+              "type": "grid",
+              "columns": 2,
+              "children": [
+                { "type": "input", "name": "metric", "label": "临时查看指标（留空=自动选主指标）", "value": "" },
+                { "type": "button", "label": "应用指标", "action": "apply" }
+              ]
+            },
+            { "type": "text", "value": { "source": "chart", "field": "note" } },
+            {
+              "type": "chart",
+              "label": "临时查看",
+              "chart_type": "line",
+              "x": "label",
+              "y": "value",
+              "value": { "source": "chart", "field": "points" }
+            },
+            { "type": "text", "value": { "source": "curves", "field": "note" } },
+            {
+              "type": "text",
+              "value": { "source": "curves", "field": "titles.0" },
+              "when": { "reference": { "source": "curves", "field": "flags.0" }, "operator": "truthy" }
+            },
+            {
+              "type": "chart",
+              "chart_type": "line",
+              "x": "label",
+              "y": "value",
+              "value": { "source": "curves", "field": "series.0" },
+              "when": { "reference": { "source": "curves", "field": "flags.0" }, "operator": "truthy" }
+            },
+            {
+              "type": "text",
+              "value": { "source": "curves", "field": "titles.1" },
+              "when": { "reference": { "source": "curves", "field": "flags.1" }, "operator": "truthy" }
+            },
+            {
+              "type": "chart",
+              "chart_type": "line",
+              "x": "label",
+              "y": "value",
+              "value": { "source": "curves", "field": "series.1" },
+              "when": { "reference": { "source": "curves", "field": "flags.1" }, "operator": "truthy" }
+            },
+            {
+              "type": "text",
+              "value": { "source": "curves", "field": "titles.2" },
+              "when": { "reference": { "source": "curves", "field": "flags.2" }, "operator": "truthy" }
+            },
+            {
+              "type": "chart",
+              "chart_type": "line",
+              "x": "label",
+              "y": "value",
+              "value": { "source": "curves", "field": "series.2" },
+              "when": { "reference": { "source": "curves", "field": "flags.2" }, "operator": "truthy" }
+            },
+            {
+              "type": "text",
+              "value": { "source": "curves", "field": "titles.3" },
+              "when": { "reference": { "source": "curves", "field": "flags.3" }, "operator": "truthy" }
+            },
+            {
+              "type": "chart",
+              "chart_type": "line",
+              "x": "label",
+              "y": "value",
+              "value": { "source": "curves", "field": "series.3" },
+              "when": { "reference": { "source": "curves", "field": "flags.3" }, "operator": "truthy" }
+            },
+            {
+              "type": "text",
+              "value": { "source": "curves", "field": "titles.4" },
+              "when": { "reference": { "source": "curves", "field": "flags.4" }, "operator": "truthy" }
+            },
+            {
+              "type": "chart",
+              "chart_type": "line",
+              "x": "label",
+              "y": "value",
+              "value": { "source": "curves", "field": "series.4" },
+              "when": { "reference": { "source": "curves", "field": "flags.4" }, "operator": "truthy" }
+            },
+            {
+              "type": "text",
+              "value": { "source": "curves", "field": "titles.5" },
+              "when": { "reference": { "source": "curves", "field": "flags.5" }, "operator": "truthy" }
+            },
+            {
+              "type": "chart",
+              "chart_type": "line",
+              "x": "label",
+              "y": "value",
+              "value": { "source": "curves", "field": "series.5" },
+              "when": { "reference": { "source": "curves", "field": "flags.5" }, "operator": "truthy" }
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "label": "最近采样记录",
+          "children": [
+            {
+              "type": "table",
+              "value": { "source": "history", "field": "rows" },
+              "columns": [
+                { "field": "time", "label": "时间" },
+                { "field": "count", "label": "指标数" },
+                { "field": "summary", "label": "摘要" }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "label": "操作",
+          "children": [
+            {
+              "type": "grid",
+              "columns": 2,
+              "children": [
+                { "type": "button", "label": "立即采样", "action": "sample" },
+                { "type": "button", "label": "清空历史记录", "action": "clear", "variant": "danger" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

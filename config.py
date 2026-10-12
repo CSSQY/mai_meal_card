@@ -26,7 +26,7 @@ from pydantic import Field, create_model
 logger = logging.getLogger(__name__)
 
 # 插件 / 配置版本号（plugin.py、_manifest.json 与本文件保持一致）。
-PLUGIN_VERSION = "1.1.2"
+PLUGIN_VERSION = "1.3.0"
 
 DEFAULT_TEXT_TEMPLATE = "🍚 饭卡状态（{date}）\n{items}\n{unavailable}"
 
@@ -909,6 +909,91 @@ class LimitsSection(PluginConfigBase):
     )
 
 
+class HistorySection(PluginConfigBase):
+    """历史记录与统计配置（WebUI「麦麦饭卡」页面的数据来源）。"""
+
+    __ui_label__ = "记录与统计"
+    __ui_icon__ = "chart"
+    __ui_order__ = 308
+
+    enabled: bool = Field(
+        default=True,
+        description="是否按检查周期自动采样并记录历史数据（供 WebUI 展示趋势曲线）",
+        json_schema_extra={
+            "label": "启用历史记录",
+            "hint": "开启后按下方「检查周期」自动查询各平台并记录数值，供 WebUI 的「麦麦饭卡」页面绘制趋势曲线",
+        },
+    )
+    interval_seconds: int = Field(
+        default=1800,
+        ge=30,
+        le=86400,
+        description="检查周期（秒），同时也是曲线颗粒度：每隔这么久采样一次",
+        json_schema_extra={
+            "label": "检查周期 / 曲线颗粒度（秒）",
+            "hint": "每隔多久采样一次，也就是曲线的颗粒度。越小曲线越细但历史增长越快；默认 1800（30 分钟），最小 30",
+            "placeholder": "1800",
+            "step": 60,
+        },
+    )
+    retention_mode: Literal["count", "days", "size"] = Field(
+        default="count",
+        description="历史保留方式：count=按检查次数；days=按天数；size=按文件大小",
+        json_schema_extra={
+            "label": "保留方式",
+            "hint": "三种保留方式只生效选中的那一种：按检查次数（保留最近多少次采样）/ 按天数（保留最近多少天）/ 按文件大小（超过就丢最旧的）",
+        },
+    )
+    retention_count: int = Field(
+        default=2880,
+        ge=10,
+        le=200000,
+        description="保留方式为 count 时生效：保留最近多少次检查采样",
+        json_schema_extra={
+            "label": "保留次数（count）",
+            "hint": "仅「保留方式=按检查次数」时生效：保留最近多少条采样（默认 2880，即 30 分钟一次约 60 天）",
+            "placeholder": "2880",
+            "step": 100,
+        },
+    )
+    retention_days: int = Field(
+        default=30,
+        ge=1,
+        le=3650,
+        description="保留方式为 days 时生效：保留最近多少天的采样",
+        json_schema_extra={
+            "label": "保留天数（days）",
+            "hint": "仅「保留方式=按天数」时生效：早于该天数的采样会被删除",
+            "placeholder": "30",
+            "step": 1,
+        },
+    )
+    retention_size_mb: float = Field(
+        default=5.0,
+        ge=0.1,
+        le=200.0,
+        description="保留方式为 size 时生效：历史文件的最大体积（MB）",
+        json_schema_extra={
+            "label": "文件大小上限 MB（size）",
+            "hint": "仅「保留方式=按文件大小」时生效：超过该体积就从最旧的采样开始丢弃（至少保留 1 条）",
+            "placeholder": "5",
+            "step": 0.5,
+        },
+    )
+    chart_metrics: List[str] = Field(
+        default_factory=list,
+        description="WebUI 趋势曲线同时追踪的指标 id（最多 6 条，超出部分忽略）",
+        json_schema_extra={
+            **_list_field(
+                "minimax.interval_remaining",
+                "填指标 id 后点 + 添加，最多 6 条；支持不带平台前缀的简写（如 interval_remaining）。"
+                "每条会渲染成一张独立的平滑曲线图；留空则页面只显示「临时查看」曲线。",
+            ),
+            "label": "趋势曲线指标",
+        },
+    )
+
+
 # ────────────────────────── 槽位类生成 ──────────────────────────
 
 
@@ -950,6 +1035,7 @@ _FIELD_DEFS["llm_tool_permission"] = (ToolPermissionSection, Field(default_facto
 _FIELD_DEFS["command_permission"] = (CommandPermissionSection, Field(default_factory=CommandPermissionSection))
 _FIELD_DEFS["render"] = (RenderSection, Field(default_factory=RenderSection))
 _FIELD_DEFS["limits"] = (LimitsSection, Field(default_factory=LimitsSection))
+_FIELD_DEFS["history"] = (HistorySection, Field(default_factory=HistorySection))
 
 MealCardConfig = create_model(
     "MealCardConfig",

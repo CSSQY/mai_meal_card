@@ -1,7 +1,8 @@
-"""调度器：定时播报循环 + 警报轮询循环。
+"""调度器：定时播报循环 + 警报轮询循环 + 历史采样。
 
 - 播报：按每个任务的发送时刻（``HH:MM``）计算「下一个未来时刻」，漏过不补发；
 - 警报：每个任务按自身间隔独立计时，条件满足时投递；
+- 历史采样：按 ``[history].interval_seconds``（检查周期，也是曲线颗粒度）定期查询并记录数值；
 - 单次执行异常只记一次日志，不中断循环；配置更新时立即重算。
 """
 
@@ -15,6 +16,7 @@ import logging
 from .config import MealCardConfig, to_alert_tasks, to_broadcast_tasks
 from .conditions import evaluate
 from .delivery import broadcast_content
+from .history import HistoryStore, RetentionPolicy, format_size
 from .llm_rewrite import LlmCallError, generate_rewrite
 from .platforms import MetricValue
 from .query_engine import clear_query_cache, describe_platforms, run_all
@@ -25,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 _IDLE_WAIT_SECONDS = 60.0
 """没有任何任务时的空转检查间隔（秒）。"""
+
+_SAMPLE_TIMEOUT_SECONDS = 8.0
+"""单次历史采样的总超时（秒）。WebUI 网关单次调用限 10 秒，这里留出余量。"""
 
 
 class ScheduleLoop:
@@ -43,6 +48,8 @@ class ScheduleLoop:
         self._alert_next_run: Dict[int, float] = {}
         self._broadcast_last_fired: Dict[str, datetime] = {}
         self._logged_invalid_conditions: set = set()
+        self._record_next_run: Optional[float] = None
+        self._record_lock: Optional[asyncio.Lock] = None
 
     @property
     def _ctx(self) -> Any:
@@ -77,6 +84,7 @@ class ScheduleLoop:
         clear_query_cache()
         self._alert_next_run.clear()
         self._broadcast_last_fired.clear()
+        self._record_next_run = None
         if self._reload_event is not None:
             self._reload_event.set()
 
@@ -134,16 +142,21 @@ class ScheduleLoop:
                     self._alert_next_run[index] = next_at
                 candidates.append(max(next_at - now_monotonic, 0.0))
 
+        if self._history_enabled():
+            next_at = self._record_next_run
+            candidates.append(max(next_at - _monotonic(), 0.0) if next_at is not None else 0.0)
+
         if not candidates:
             return _IDLE_WAIT_SECONDS
         return max(min(candidates), 0.5)
 
     async def _tick(self) -> None:
-        """执行到期的播报与警报任务。"""
+        """执行到期的播报、警报与历史采样。"""
 
         now = datetime.now()
         await self._run_due_broadcasts(now)
         await self._run_due_alerts()
+        await self._maybe_record()
 
     async def _run_due_broadcasts(self, now: datetime) -> None:
         """执行到期的定时播报任务。"""
@@ -193,6 +206,113 @@ class ScheduleLoop:
                 send_mode=task.send_mode,
                 content=task.content,
             )
+
+    # ──── 历史采样 ────
+
+    def _history_enabled(self) -> bool:
+        """历史记录是否启用。"""
+
+        try:
+            return bool(self._config.history.enabled)
+        except Exception:  # noqa: BLE001 - 配置结构异常时视为关闭
+            return False
+
+    def _retention_policy(self) -> RetentionPolicy:
+        """由配置构造历史裁剪策略。"""
+
+        section = self._config.history
+        try:
+            return RetentionPolicy(
+                mode=str(getattr(section, "retention_mode", "count") or "count"),
+                count=int(getattr(section, "retention_count", 2880)),
+                days=int(getattr(section, "retention_days", 30)),
+                size_mb=float(getattr(section, "retention_size_mb", 5.0)),
+            )
+        except (TypeError, ValueError):
+            return RetentionPolicy()
+
+    async def _maybe_record(self) -> None:
+        """到点则执行一次历史采样。"""
+
+        if not self._history_enabled():
+            return
+        now_monotonic = _monotonic()
+        next_at = self._record_next_run
+        if next_at is not None and now_monotonic < next_at:
+            return
+        try:
+            interval = max(int(self._config.history.interval_seconds), 30)
+        except (TypeError, ValueError, AttributeError):
+            interval = 1800
+        self._record_next_run = now_monotonic + interval
+        await self.record_now()
+
+    async def record_now(self) -> bool:
+        """立即查询并写入一条历史采样（WebUI「立即采样」也用它）。
+
+        Returns:
+            bool: 是否成功写入样本。
+        """
+
+        store = self._history_store()
+        if store is None:
+            return False
+        if self._record_lock is None:
+            self._record_lock = asyncio.Lock()
+        async with self._record_lock:
+            try:
+                results = await asyncio.wait_for(
+                    run_all(self._ctx, self._config, ()),
+                    timeout=_SAMPLE_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("[meal_card] 历史采样超时（%.0f 秒），本次已跳过", _SAMPLE_TIMEOUT_SECONDS)
+                return False
+            except Exception as exc:  # noqa: BLE001 - 采样失败不影响循环
+                logger.error("[meal_card] 历史采样查询失败：%s", exc, exc_info=True)
+                return False
+
+            values: Dict[str, float] = {}
+            meta: Dict[str, Dict[str, Any]] = {}
+            for metric in results:
+                metric_id = metric.qualified_id
+                if not metric_id:
+                    continue
+                meta[metric_id] = {
+                    "name": metric.name,
+                    "platform": metric.platform_name,
+                    "kind": metric.kind,
+                    "unit": metric.unit,
+                }
+                if metric.ok and metric.value is not None:
+                    values[metric_id] = float(metric.value)
+
+            if not values:
+                logger.warning("[meal_card] 历史采样没有得到任何可用数值，本次已跳过（请检查平台配置）")
+                return False
+
+            written = store.append(values, meta, policy=self._retention_policy())
+            if written:
+                stats = store.stats()
+                logger.info(
+                    "[meal_card] 已记录一条历史采样：%d 项指标，累计 %d 条，文件 %s",
+                    len(values),
+                    stats["count"],
+                    format_size(stats["file_size"]),
+                )
+            return written
+
+    def _history_store(self) -> Optional[HistoryStore]:
+        """取出插件的历史存储（不可用时返回 None）。"""
+
+        getter = getattr(self._plugin, "_get_history", None)
+        if getter is None:
+            return None
+        try:
+            return getter()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[meal_card] 获取历史存储失败：%s", exc)
+            return None
 
     async def _execute_task(
         self,

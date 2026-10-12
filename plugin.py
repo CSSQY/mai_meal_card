@@ -18,7 +18,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from maibot_sdk import Command, MaiBotPlugin, Tool
+from maibot_sdk import API, Command, MaiBotPlugin, Tool
 from maibot_sdk.types import ToolParameterInfo, ToolParamType
 
 from .config import (
@@ -28,10 +28,20 @@ from .config import (
     MealCardConfig,
 )
 from .delivery import send_content
+from .history import (
+    HistoryStore,
+    build_curve,
+    format_size,
+    format_span,
+    iter_recent_samples,
+    resolve_metric_id,
+    summarize_sample,
+)
 from .llm_rewrite import LlmCallError, generate_rewrite
 from .permissions import check_conversation_access, filter_requested_keys, resolve_allowed_keys
 from .platforms import MetricValue
-from .query_engine import available_metric_ids, describe_platforms, run_all
+from .platforms.base import KIND_COUNT, KIND_PERCENT
+from .query_engine import available_metric_ids, describe_platforms, format_metric, run_all
 from .renderer import build_image
 from .scheduler import ScheduleLoop
 from .text_report import render_text_report
@@ -65,6 +75,22 @@ _SEND_MODE_ALIASES = {
 }
 
 _ALL_ALIASES = {"全部", "所有", "all"}
+
+# WebUI「麦麦饭卡」页面用到的常量。
+_HISTORY_FILE_NAME = "history.json"
+"""历史记录文件名（位于宿主分配的插件数据目录内）。"""
+
+_CHART_MAX_POINTS = 120
+"""趋势曲线最多输出的点数。"""
+
+_CHART_SLOT_LIMIT = 6
+"""WebUI 页面里预置的曲线槽位数（与 webui.json 的节点数一一对应）；配置超出部分忽略。"""
+
+_CHART_SLOT_WARNED = False
+"""配置超出槽位数时是否已记过日志（避免每次刷新页面都刷屏）。"""
+
+_HISTORY_TABLE_LIMIT = 50
+"""历史记录表格展示的最近采样条数。"""
 
 _KIND_FILTER_ALIASES = {
     "全部": "",
@@ -102,6 +128,7 @@ class MealCardPlugin(MaiBotPlugin):
 
         super().__init__()
         self._scheduler = ScheduleLoop(self)
+        self._history: Optional[HistoryStore] = None
 
     # ──── 生命周期 ────
 
@@ -224,8 +251,9 @@ class MealCardPlugin(MaiBotPlugin):
             ("broadcasts", "播报", "clock", 3, [f"broadcast{i}" for i in range(1, active_broadcasts + 1)]),
             ("alerts", "警报", "bell", 4, [f"alert{i}" for i in range(1, active_alerts + 1)]),
             ("content", "展示与模板", "file-text", 5, ["display", "text_template", "llm_rewrite"]),
-            ("access", "指令与权限", "shield", 6, ["command", "llm_tool_permission", "command_permission"]),
-            ("advanced", "渲染与上限", "image", 7, ["render", "limits"]),
+            ("record", "记录与统计", "chart", 6, ["history"]),
+            ("access", "指令与权限", "shield", 7, ["command", "llm_tool_permission", "command_permission"]),
+            ("advanced", "渲染与上限", "image", 8, ["render", "limits"]),
         ]
 
         tabs: List[Dict[str, Any]] = []
@@ -387,6 +415,244 @@ class MealCardPlugin(MaiBotPlugin):
         if not deny_message:
             return
         await self.ctx.send.text(deny_message, stream_id)
+
+    # ──── WebUI 页面（「麦麦饭卡」）的查询与操作 ────
+
+    def _get_history(self) -> Optional[HistoryStore]:
+        """懒加载历史存储（位于宿主分配的插件持久化数据目录）。"""
+
+        if self._history is not None:
+            return self._history
+        paths = getattr(self.ctx, "paths", None)
+        data_dir = getattr(paths, "data_dir", None) if paths is not None else None
+        if data_dir is None:
+            logger.warning("[meal_card] 宿主未提供插件数据目录，WebUI 历史记录不可用")
+            return None
+        self._history = HistoryStore(Path(data_dir) / _HISTORY_FILE_NAME)
+        logger.info("[meal_card] 历史记录已挂载：%s", data_dir)
+        return self._history
+
+    @API("webui_summary", description="读取饭卡历史记录的概览统计（WebUI 页面用）", version="1")
+    async def webui_summary(self) -> Dict[str, Any]:
+        """返回页面顶部概览卡片所需的统计值。"""
+
+        section = self.config.history
+        interval = _coerce_interval(getattr(section, "interval_seconds", 1800))
+        store = self._get_history()
+        stats = store.stats() if store is not None else {"count": 0, "first_ts": 0, "last_ts": 0, "file_size": 0, "metric_count": 0}
+        meta = store.meta if store is not None else {}
+        auto_metric = resolve_metric_id(meta, "")
+        auto_label = f"{meta[auto_metric].get('name') or auto_metric}（{auto_metric}）" if auto_metric else "暂无可用指标"
+        return {
+            "status": "已启用" if getattr(section, "enabled", False) else "已停用",
+            "interval": _format_seconds(interval),
+            "sample_count": str(stats["count"]),
+            "span": format_span(stats["first_ts"], stats["last_ts"]) or "暂无记录",
+            "file_size": format_size(stats["file_size"]),
+            "metric_total": str(stats["metric_count"]),
+            "auto_metric": auto_label,
+            "retention": _describe_retention(section),
+            "storage_ready": "可用" if store is not None else "不可用（宿主未提供数据目录）",
+        }
+
+    @API("webui_current", description="读取最近一次采样得到的各平台额度与用量", version="1")
+    async def webui_current(self) -> Dict[str, Any]:
+        """返回「当前额度与用量」表格数据（取最近一条采样，避免实时请求超时）。"""
+
+        store = self._get_history()
+        rows: List[Dict[str, Any]] = []
+        updated = "暂无记录"
+        if store is not None:
+            latest = store.latest()
+            if latest is not None:
+                updated = str(latest.get("time") or "")
+                meta = store.meta
+                for metric_id, value in (latest.get("values") or {}).items():
+                    if isinstance(value, (int, float)):
+                        rows.append(self._current_row(str(metric_id), float(value), meta.get(str(metric_id)) or {}))
+                rows.sort(key=lambda item: (str(item.get("platform") or ""), str(item.get("metric") or "")))
+        return {"rows": rows, "updated": updated}
+
+    @API("webui_chart", description="读取指定指标的平滑趋势曲线数据", version="1")
+    async def webui_chart(self, metric: str = "") -> Dict[str, Any]:
+        """把历史序列平滑重采样为折线图数据（宿主折线为直线段，靠加密点呈现平滑）。"""
+
+        store = self._get_history()
+        if store is None:
+            return {"points": [], "metric": "", "metric_name": "", "note": "宿主未提供插件数据目录，无法读取历史记录"}
+        meta = store.meta
+        if not meta:
+            return {"points": [], "metric": "", "metric_name": "", "note": "暂无历史数据：启用「记录与统计」后会按检查周期自动采样"}
+        resolved = resolve_metric_id(meta, metric)
+        if not resolved:
+            return {
+                "points": [],
+                "metric": "",
+                "metric_name": "",
+                "note": f"找不到指标「{metric}」；可在上方「当前额度与用量」表的「指标 id」列查看可用 id",
+            }
+        points = build_curve(store.series(resolved), max_points=_CHART_MAX_POINTS)
+        name = str((meta.get(resolved) or {}).get("name") or resolved)
+        return {
+            "points": points,
+            "metric": resolved,
+            "metric_name": name,
+            "note": "" if points else "该指标暂无可用数值",
+        }
+
+    @API("webui_curves", description="读取配置的多指标趋势曲线（一次返回多张平滑曲线）", version="1")
+    async def webui_curves(self) -> Dict[str, Any]:
+        """按配置的「趋势曲线指标」一次返回多组曲线数据。
+
+        页面为每条指标预置一个图表槽位（最多 :data:`_CHART_SLOT_LIMIT` 个）：本方法固定返回
+        同样长度的数组，未配置或取不到数据的槽位用空数组 + ``flags[i] = False`` 占位，
+        页面据此把该槽位隐藏起来。
+        """
+
+        global _CHART_SLOT_WARNED
+
+        configured = [
+            str(item).strip()
+            for item in (getattr(self.config.history, "chart_metrics", []) or [])
+            if str(item or "").strip()
+        ]
+        if len(configured) > _CHART_SLOT_LIMIT and not _CHART_SLOT_WARNED:
+            _CHART_SLOT_WARNED = True
+            logger.warning(
+                "[meal_card] 趋势曲线指标的配置条数（%d）超过上限 %d，仅显示前 %d 条",
+                len(configured),
+                _CHART_SLOT_LIMIT,
+                _CHART_SLOT_LIMIT,
+            )
+
+        store = self._get_history()
+        meta = store.meta if store is not None else {}
+        series: List[List[Dict[str, Any]]] = []
+        titles: List[str] = []
+        flags: List[bool] = []
+        problems: List[str] = []
+
+        for index in range(_CHART_SLOT_LIMIT):
+            wanted = configured[index] if index < len(configured) else ""
+            if not wanted:
+                series.append([])
+                titles.append("")
+                flags.append(False)
+                continue
+            if store is None:
+                series.append([])
+                titles.append(wanted)
+                flags.append(False)
+                problems.append("宿主未提供插件数据目录，无法读取历史记录")
+                continue
+            resolved = resolve_metric_id(meta, wanted)
+            if not resolved:
+                series.append([])
+                titles.append(wanted)
+                flags.append(False)
+                problems.append(f"找不到指标「{wanted}」")
+                continue
+            points = build_curve(store.series(resolved), max_points=_CHART_MAX_POINTS)
+            name = str((meta.get(resolved) or {}).get("name") or resolved)
+            series.append(points)
+            titles.append(f"{name}（{resolved}）")
+            flags.append(bool(points))
+            if not points:
+                problems.append(f"{resolved} 暂无可用数值")
+
+        if not configured:
+            note = (
+                f"未配置趋势指标：可在插件配置的「记录与统计 → 趋势曲线指标」中添加"
+                f"（最多 {_CHART_SLOT_LIMIT} 条），每条会渲染成一张独立的平滑曲线图"
+            )
+        elif len(configured) > _CHART_SLOT_LIMIT:
+            note = f"共配置 {len(configured)} 条，仅显示前 {_CHART_SLOT_LIMIT} 条；" + "；".join(problems)
+        else:
+            note = "；".join(problems)
+
+        return {
+            "series": series,
+            "titles": titles,
+            "flags": flags,
+            "note": note,
+            "count": sum(1 for flag in flags if flag),
+        }
+
+    @API("webui_history", description="读取最近的采样记录列表", version="1")
+    async def webui_history(self) -> Dict[str, Any]:
+        """返回最近若干条采样记录的表格数据。"""
+
+        store = self._get_history()
+        rows: List[Dict[str, Any]] = []
+        if store is not None:
+            meta = store.meta
+            for sample in iter_recent_samples(store.samples, _HISTORY_TABLE_LIMIT):
+                values = sample.get("values") or {}
+                rows.append(
+                    {
+                        "time": str(sample.get("time") or ""),
+                        "count": len(values),
+                        "summary": summarize_sample(sample, meta),
+                    }
+                )
+        return {"rows": rows}
+
+    @API("webui_sample", description="立即采样一次并写入历史记录", version="1")
+    async def webui_sample(self) -> Dict[str, Any]:
+        """手动触发一次采样（受检查周期之外的即时补充）。"""
+
+        if not getattr(self.config.history, "enabled", False):
+            return {"success": False, "message": "历史记录已停用，请先在插件配置的「记录与统计」中开启"}
+        written = await self._scheduler.record_now()
+        return {
+            "success": written,
+            "message": "已记录一条采样" if written else "本次采样没有可用数值（请检查平台配置与插件日志）",
+        }
+
+    @API("webui_clear", description="清空饭卡历史记录", version="1")
+    async def webui_clear(self) -> Dict[str, Any]:
+        """清空历史样本（指标名称等元信息保留）。"""
+
+        store = self._get_history()
+        if store is None:
+            return {"success": False, "message": "宿主未提供插件数据目录，无法清空"}
+        store.clear()
+        return {"success": True, "message": "历史记录已清空"}
+
+    @API("webui_apply", description="应用曲线指标选择（触发页面数据刷新）", version="1")
+    async def webui_apply(self, metric: str = "") -> Dict[str, Any]:
+        """按钮用的空操作：真正的刷新由宿主前端在操作完成后重新拉取查询数据。"""
+
+        del metric
+        return {"success": True}
+
+    def _current_row(self, metric_id: str, value: float, info: Dict[str, Any]) -> Dict[str, Any]:
+        """把一条采样值渲染为表格行（复用与报告一致的展示格式化）。"""
+
+        kind = str(info.get("kind") or KIND_COUNT)
+        prefix, _, suffix = metric_id.partition(".")
+        metric = MetricValue(
+            id=suffix or metric_id,
+            name=str(info.get("name") or metric_id),
+            kind=kind,
+            value=value,
+            unit=str(info.get("unit") or ""),
+            platform_key=prefix,
+            platform_name=str(info.get("platform") or ""),
+            progress=(value / 100.0) if kind == KIND_PERCENT else None,
+        )
+        try:
+            display = format_metric(metric, self.config).display
+        except Exception as exc:  # noqa: BLE001 - 展示失败不能影响页面
+            logger.warning("[meal_card] 格式化历史指标失败：%s", exc)
+            display = f"{value:g}"
+        return {
+            "platform": metric.platform_name or "—",
+            "name": metric.name,
+            "metric": metric_id,
+            "value": display or f"{value:g}",
+            "status": "正常",
+        }
 
     @staticmethod
     def _parse_command_args(kwargs: Dict[str, Any]) -> Tuple[List[str], str]:
@@ -684,6 +950,39 @@ def _empty_result_hint(config: MealCardConfig) -> str:
     if catalog:
         return f"{base}（当前可用指标：{catalog}；请检查平台配置与查询权限）"
     return f"{base}（请先在「平台」页填写平台与密钥）"
+
+
+def _coerce_interval(raw: Any) -> int:
+    """把配置里的检查周期规范化为秒数（非法值回退 1800）。"""
+
+    try:
+        return max(int(raw), 30)
+    except (TypeError, ValueError):
+        return 1800
+
+
+def _format_seconds(seconds: int) -> str:
+    """把秒数格式化为中文时长（如「30 分钟」「1 小时 30 分钟」）。"""
+
+    total = max(int(seconds), 0)
+    if total % 86400 == 0 and total >= 86400:
+        return f"{total // 86400} 天"
+    if total % 3600 == 0 and total >= 3600:
+        return f"{total // 3600} 小时"
+    if total % 60 == 0 and total >= 60:
+        return f"{total // 60} 分钟"
+    return f"{total} 秒"
+
+
+def _describe_retention(section: Any) -> str:
+    """把保留策略描述成一句中文（用于概览卡片）。"""
+
+    mode = str(getattr(section, "retention_mode", "count") or "count").strip().lower()
+    if mode == "days":
+        return f"按天数保留最近 {int(getattr(section, 'retention_days', 30))} 天"
+    if mode == "size":
+        return f"按文件大小保留，上限 {float(getattr(section, 'retention_size_mb', 5.0)):g} MB"
+    return f"按检查次数保留最近 {int(getattr(section, 'retention_count', 2880))} 条"
 
 
 def create_plugin() -> MealCardPlugin:
