@@ -238,7 +238,7 @@
 | `platform_count` | int | `1` | 平台槽位数量（改大需重载一次插件） |
 | `broadcast_count` | int | `1` | 播报槽位数量（改大需重载一次插件） |
 | `alert_count` | int | `1` | 警报槽位数量（改大需重载一次插件） |
-| `config_version` | str | `"1.3.0"` | 配置版本（请勿手改） |
+| `config_version` | str | `"1.4.0"` | 配置版本（请勿手改） |
 
 ### 7.2 平台槽位 `[platformN]`
 
@@ -320,6 +320,11 @@
 | `show_progress` | bool | `true` | 百分比指标是否显示进度条 |
 | `show_percentage` | bool | `true` | 百分比指标是否显示数字；关闭后只显示进度条 |
 | `progress_bar_width` | int | `20` | 进度条字符宽度（5~50） |
+| `show_raw` | bool | `false` | 是否在文本模板、LLM 转述与 LLM 工具结果里展示「原始响应」（排查用） |
+
+> **原始响应（`raw`）默认不展示**：它是平台返回的响应体摘要，
+> 默认不出现在文本模板、LLM 转述与 LLM 工具结果里，**图片渲染始终不展示**。
+> 需要排查接口异常时把 `show_raw` 打开即可；**失败状态的原始响应始终保留**（否则看不到失败原因）。
 
 ### 7.6 `[text_template]` 文本模板
 
@@ -347,6 +352,10 @@
 | `llm_prompt` | str | 内置 | 转述任务说明 |
 
 - `provider="custom"`：向 `<api_base_url>/chat/completions` 发 `POST`；网络异常与 5xx / 429 / 408 / 409 / 425 会重试，其余 4xx 直接失败。
+- **第三方服务说明**：`provider="custom"` 会把**宿主人格**（`bot.nickname` / `personality.personality` /
+  `personality.reply_style`，可用 `use_persona=false` 关闭）与**本次查询到的额度数据**
+  （各指标名称与数值）发送到 `api_base_url`；**不会**发送聊天记录、群号、QQ 号或历史采样数据。
+  请自行确认该服务可信。
 - 人格注入：读取宿主 `bot.nickname`、`personality.personality`、`personality.reply_style`，
   最终提示词 = `人格` + `llm_prompt` + `查询数据`。
 - 调用失败会自动回退为模板文本。
@@ -405,7 +414,7 @@
 | `font_services` | list[str] | 内地 + 海外两组 | 字体服务组，每条 `name=;css=;static=` |
 
 **自定义图片模板（可添加，无需改代码）**：往插件数据目录
-`data/plugins/cssqy.meal-card/templates/` 放一个 `.html`（根节点带 `id="meal-card"`，
+`data/plugins/cssqy.mai-meal-card/templates/` 放一个 `.html`（根节点带 `id="meal-card"`，
 用 `{{占位符}}` 引用数据），再到 `template_name` 填该文件名即可。
 
 ### 7.11 `[limits]` 请求上限
@@ -443,7 +452,8 @@
   `<div class="footer">{{footer}}</div>`，否则该开关不生效。
 - 未知占位符会被置空并记一条 warning。
 - **图片不展示「原始响应」**：成功的 `raw` 指标（原始响应摘要）不会出现在图片里；
-  失败指标照常保留，便于在图上看到失败原因。文本模板仍会包含 `raw`。
+  失败指标照常保留，便于在图上看到失败原因。文本模板与 LLM 工具结果同样默认剔除成功的 `raw`
+  （可用 `[display].show_raw` 打开），且 `{count}` 与 `{items}` 的口径都基于过滤后的指标。
 
 ### 7.14 `[history]` 记录与统计
 
@@ -476,6 +486,7 @@
 | `[plugin]` | `enabled = true`，三个数量均为 1 | 加载即生效 |
 | `[platform1]` | `minimax` + `cn` + 空密钥 | **需要先填订阅密钥** |
 | `[broadcast1]` / `[alert1]` | `enabled = false` | 默认关闭，避免未经确认就发消息 |
+| `[display]` | `show_raw = false` | 默认不展示原始响应（排查时可开） |
 | `[history]` | `enabled = true`、周期 1800 秒、按次数保留 2880 条 | 加载即开始记录，供 WebUI 曲线使用 |
 | `[command]` | `enabled = true`、`send_mode = "image"` | `/饭卡` 可用 |
 | 两组权限 | `permission_mode = "whitelist"`、放行指标留空 | **默认收紧**：只有名单内的对话可用 |
@@ -493,6 +504,10 @@
 - 订阅密钥与按量付费 API Key **不通用**；区域选错会返回 401。
 - **DeepSeek 适配只读余额**：仅查询账户余额（`GET /user/balance`），不产生任何费用；
   余额不足时响应里 `is_available=false`（对应指标「账户可用状态」）。
+- **原始响应默认不外发**：成功的 `raw`（平台响应体摘要）默认不进文本模板、LLM 转述与 LLM 工具结果，
+  图片渲染始终不展示；`raw` 出站前还会按键名做启发式脱敏（含 `key` / `token` / `secret` /
+  `password` / `credential` / `authorization` / `cookie` / `session` 的字段值替换为 `***`）。
+  需要排查接口异常时可用 `[display].show_raw` 临时打开。
 - **槽位数量改动需重载**：数量在插件加载时确定，改大后需「禁用再启用」插件（或重启）才生成新槽位。
 - 播报漏过的时刻不补发、执行失败不重试（仅记日志）；警报在每个间隔检查点、条件为真时投递
   （不额外去重）。

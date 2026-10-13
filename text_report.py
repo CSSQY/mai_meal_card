@@ -48,6 +48,20 @@ def has_multiple_platforms(results: Sequence[MetricValue]) -> bool:
     return len({metric.platform_key for metric in results if metric.platform_key}) > 1
 
 
+def strip_raw_metrics(results: Sequence[MetricValue], config: MealCardConfig) -> List[MetricValue]:
+    """按配置剔除「成功」状态的 ``raw`` 指标（供文本模板与 LLM 数据块共用）。
+
+    原始响应是平台返回的响应体摘要，默认不进入文本模板、LLM 转述与 LLM 工具结果
+    （与图片渲染保持一致）；失败状态的 ``raw`` 指标（``ok=False``，通常代表
+    「查询失败 / 解析失败」）始终保留，否则用户看不到失败原因。
+    ``[display].show_raw`` 开启时全部保留。
+    """
+
+    if bool(getattr(getattr(config, "display", None), "show_raw", False)):
+        return list(results)
+    return [metric for metric in results if not (metric.id == "raw" and metric.ok)]
+
+
 def group_by_platform(results: Sequence[MetricValue]) -> List[Tuple[str, List[MetricValue]]]:
     """按平台把指标分组（保持首次出现顺序）。
 
@@ -74,7 +88,7 @@ def build_placeholders(
 ) -> Dict[str, str]:
     """构造占位符字典。"""
 
-    del config
+    results = strip_raw_metrics(results, config)
     placeholders: _SafeDict = _SafeDict()
     placeholders["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     placeholders["count"] = str(len(results))
@@ -147,9 +161,15 @@ def render_text_report(
     return _compress_blank_lines(rendered)
 
 
-def build_data_block(results: Sequence[MetricValue], platform_name: str = "") -> str:
-    """构造给 LLM 的纯数据块（多平台时按平台分组）。"""
+def build_data_block(
+    results: Sequence[MetricValue],
+    platform_name: str = "",
+    show_raw: bool = False,
+) -> str:
+    """构造给 LLM 的纯数据块（多平台时按平台分组；默认不含成功的 ``raw``）。"""
 
+    if not show_raw:
+        results = [metric for metric in results if not (metric.id == "raw" and metric.ok)]
     names = _platform_names(results)
     if not names and platform_name:
         names = [platform_name]

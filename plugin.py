@@ -44,7 +44,7 @@ from .platforms.base import KIND_COUNT, KIND_PERCENT
 from .query_engine import available_metric_ids, describe_platforms, format_metric, run_all
 from .renderer import build_image
 from .scheduler import ScheduleLoop
-from .text_report import render_text_report
+from .text_report import render_text_report, strip_raw_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -335,10 +335,11 @@ class MealCardPlugin(MaiBotPlugin):
         if not results:
             return {"success": False, "content": _empty_result_hint(self.config)}
 
+        visible = strip_raw_metrics(results, self.config)
         return {
             "success": True,
-            "content": render_text_report(results, self.config, describe_platforms(self.config)),
-            "items": _describe_metrics(results),
+            "content": render_text_report(visible, self.config, describe_platforms(self.config)),
+            "items": _describe_metrics(visible),
         }
 
     # ──── 指令 ────

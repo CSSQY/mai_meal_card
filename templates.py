@@ -21,6 +21,8 @@ from .text_report import build_placeholders, group_by_platform, has_multiple_pla
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_TOKEN = re.compile(r"\{\{\s*([A-Za-z0-9_.\-\u4e00-\u9fff]+)\s*\}\}")
+_URL_ALLOWED = re.compile(r"^https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$")
+"""字体服务基地址白名单：必须是 http(s) 且只含 URL 合法字符（挡掉引号、尖括号等注入字符）。"""
 _BUILTIN_TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 _USER_TEMPLATE_DIR_NAME = "templates"
 
@@ -46,6 +48,25 @@ class FontService:
     static_base: str
 
 
+def _safe_base_url(raw: Any) -> str:
+    """校验并规范化字体服务基地址；非法时返回空串。
+
+    字体地址会被直接拼进渲染用的 HTML（``<link href="…">``），因此除了要求 ``http(s)://``
+    之外，还限制为 URL 合法字符，避免引号、尖括号等字符注入标记。
+    """
+
+    text = str(raw or "").strip().rstrip("/")
+    if not text:
+        return ""
+    if not _URL_ALLOWED.fullmatch(text):
+        logger.warning(
+            "[meal_card] 字体服务地址非法（必须是 http(s) 且不含引号/尖括号等字符），已忽略：%s",
+            raw,
+        )
+        return ""
+    return text
+
+
 def parse_font_services(items: Sequence[str]) -> List[FontService]:
     """解析字体服务组条目（``name=;css=;static=``）。"""
 
@@ -58,16 +79,16 @@ def parse_font_services(items: Sequence[str]) -> List[FontService]:
                 continue
             name, value = item.split("=", 1)
             fields[name.strip().lower()] = value.strip()
-        css_base = fields.get("css", "")
-        static_base = fields.get("static", "")
-        if not css_base.startswith(("http://", "https://")):
-            logger.warning("[meal_card] 字体服务组条目非法（缺少 http(s) 的 css 地址），已跳过：%s", raw)
+        css_base = _safe_base_url(fields.get("css", ""))
+        if not css_base:
+            logger.warning("[meal_card] 字体服务组条目非法（缺少合法的 http(s) css 地址），已跳过：%s", raw)
             continue
+        static_base = _safe_base_url(fields.get("static", ""))
         services.append(
             FontService(
                 name=fields.get("name", "") or "默认",
-                css_base=css_base.rstrip("/"),
-                static_base=static_base.rstrip("/"),
+                css_base=css_base,
+                static_base=static_base,
             )
         )
     return services

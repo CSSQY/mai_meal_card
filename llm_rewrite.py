@@ -110,7 +110,12 @@ async def generate_rewrite(
 
     rewrite = config.llm_rewrite
     persona = await build_persona_prompt(ctx, config)
-    prompt = build_prompt(persona, rewrite.llm_prompt, build_data_block(results, platform_name))
+    data_block = build_data_block(
+        results,
+        platform_name,
+        show_raw=bool(getattr(getattr(config, "display", None), "show_raw", False)),
+    )
+    prompt = build_prompt(persona, rewrite.llm_prompt, data_block)
 
     provider = str(rewrite.provider or "host").strip().lower()
     if provider == "custom":

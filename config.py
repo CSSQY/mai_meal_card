@@ -26,7 +26,7 @@ from pydantic import Field, create_model
 logger = logging.getLogger(__name__)
 
 # 插件 / 配置版本号（plugin.py、_manifest.json 与本文件保持一致）。
-PLUGIN_VERSION = "1.3.0"
+PLUGIN_VERSION = "1.4.0"
 
 DEFAULT_TEXT_TEMPLATE = "🍚 饭卡状态（{date}）\n{items}\n{unavailable}"
 
@@ -497,6 +497,15 @@ class DisplaySection(PluginConfigBase):
             "hint": "进度条由多少个字符组成",
             "x-widget": "slider",
             "step": 1,
+        },
+    )
+    show_raw: bool = Field(
+        default=False,
+        description="是否在文本模板、LLM 转述与 LLM 工具结果里展示「原始响应」指标（默认关闭）",
+        json_schema_extra={
+            "label": "展示原始响应",
+            "hint": "原始响应是平台返回的响应体摘要，用于排查接口问题；默认关闭。"
+            "图片渲染始终不展示它；仅需排查异常时临时打开。",
         },
     )
 
