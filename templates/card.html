@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <link rel="preconnect" href="{{font_static}}" />
+  <link href="{{font_css}}/css2?family=Noto+Sans+SC:wght@400;700;900&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: transparent; font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif; }
+    #meal-card {
+      width: 640px;
+      padding: 26px;
+      background: #fdf6e3;
+      border-radius: 20px;
+      border: 2px dashed #e2d3ac;
+      color: #4a4030;
+    }
+    .title { font-size: 24px; font-weight: 900; color: #c1743f; }
+    .subtitle { margin-top: 6px; font-size: 13px; color: #a08b6a; }
+    .divider { height: 2px; background: #efe3c4; margin: 18px 0; border-radius: 2px; }
+    .items { font-size: 17px; line-height: 2.1; font-weight: 700; }
+    .items span { color: #c1743f; }
+    .platform-group { margin-top: 14px; padding-left: 12px; border-left: 3px solid #e6d5ad; }
+    .platform-group:first-child { margin-top: 0; }
+    .platform-title {
+      margin-bottom: 4px; font-size: 13px; font-weight: 700; color: #b08452;
+      letter-spacing: 0.5px;
+    }
+    .platform-items { font-size: 17px; line-height: 2.1; font-weight: 700; }
+    .unavailable { margin-top: 16px; font-size: 13px; color: #c05a5a; line-height: 1.8; }
+    .footer { margin-top: 20px; font-size: 12px; color: #b6a684; }
+  </style>
+</head>
+<body>
+  <div id="meal-card">
+    <div class="title">🍚 {{title}}</div>
+    <div class="subtitle">生成时间：{{date}} · 指标：{{count}} · 平台：{{platforms}}</div>
+    <div class="divider"></div>
+    <div class="items">{{items_html}}</div>
+    <div class="unavailable">{{unavailable}}</div>
+    <div class="footer">{{footer}}</div>
+  </div>
+</body>
+</html>
