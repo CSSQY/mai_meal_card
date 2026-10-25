@@ -61,13 +61,25 @@ async def resolve_target_stream_id(ctx: Any, target: TargetSpec) -> Optional[str
 
 
 def _extract_send_outcome(payload: Any) -> Tuple[bool, str]:
-    """解析宿主发送能力的返回值 ``(是否成功, 失败原因)``。"""
+    """解析宿主发送能力的返回值 ``(是否成功, 失败原因)``。
 
-    if not isinstance(payload, dict) or "success" not in payload:
-        raise ValueError(f"宿主发送能力返回结构异常：{type(payload).__name__}")
-    if payload.get("success"):
-        return True, ""
-    return False, str(payload.get("error") or "宿主未给出失败原因")
+    新版 SDK 的 ``ctx.send.*`` 默认直接返回布尔值（``return_details=True`` 时返回
+    ``{"sent": ..., "message_id": ...}``），旧版 SDK 则可能返回宿主原始结构
+    ``{"success": ..., "error": ...}``；这里统一兼容三种形态。
+    """
+
+    if isinstance(payload, bool):
+        return payload, "" if payload else "宿主未给出失败原因"
+    if isinstance(payload, dict):
+        if "success" in payload:
+            if payload.get("success"):
+                return True, ""
+            return False, str(payload.get("error") or "宿主未给出失败原因")
+        if "sent" in payload:
+            if payload.get("sent"):
+                return True, ""
+            return False, str(payload.get("error") or "宿主未给出失败原因")
+    return False, f"宿主发送能力返回结构异常：{type(payload).__name__}"
 
 
 async def send_content(ctx: Any, stream_id: str, text: str, image_base64: Optional[str] = None) -> bool:

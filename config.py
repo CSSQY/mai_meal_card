@@ -26,7 +26,7 @@ from pydantic import Field, create_model
 logger = logging.getLogger(__name__)
 
 # 插件 / 配置版本号（plugin.py、_manifest.json 与本文件保持一致）。
-PLUGIN_VERSION = "1.4.0"
+PLUGIN_VERSION = "1.4.1"
 
 DEFAULT_TEXT_TEMPLATE = "🍚 饭卡状态（{date}）\n{items}\n{unavailable}"
 

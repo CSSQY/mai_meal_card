@@ -238,7 +238,7 @@
 | `platform_count` | int | `1` | 平台槽位数量（改大需重载一次插件） |
 | `broadcast_count` | int | `1` | 播报槽位数量（改大需重载一次插件） |
 | `alert_count` | int | `1` | 警报槽位数量（改大需重载一次插件） |
-| `config_version` | str | `"1.4.0"` | 配置版本（请勿手改） |
+| `config_version` | str | `"1.4.1"` | 配置版本（请勿手改） |
 
 ### 7.2 平台槽位 `[platformN]`
 
