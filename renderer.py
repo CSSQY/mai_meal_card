@@ -9,11 +9,21 @@ import time
 
 from .config import MealCardConfig
 from .platforms import MetricValue
-from .templates import DEFAULT_TITLE, FontService, build_html, parse_font_services, resolve_report_title
+from .templates import (
+    DEFAULT_TITLE,
+    SYSTEM_FONT_SERVICE,
+    FontService,
+    build_html,
+    parse_font_services,
+    resolve_report_title,
+)
 
 logger = logging.getLogger(__name__)
 
 _TOTAL_RENDER_BUDGET_MS = 45000
+_SYSTEM_FALLBACK_RESERVE_MS = 8000
+"""有外部字体尝试时，为系统字体兜底预留的时间（毫秒）。"""
+
 _RENDER_SELECTOR = "#meal-card"
 
 
@@ -33,13 +43,20 @@ async def render_image(
         RenderFailed: 全部尝试都失败时抛出。
     """
 
-    services = parse_font_services(config.render.font_services)
-    if not services:
-        raise RenderFailed("字体服务组为空或全部非法，无法渲染（请检查 render.font_services 配置）")
+    render_config = config.render
+    use_external_fonts = bool(getattr(render_config, "use_external_fonts", False))
+    allow_network = bool(getattr(render_config, "allow_network", True))
+
+    external_services: List[FontService] = []
+    if use_external_fonts and allow_network:
+        external_services = parse_font_services(render_config.font_services)
+        if not external_services:
+            logger.warning("[meal_card] 已开启外部字体，但没有合法的字体服务组，将直接使用系统字体")
+    elif use_external_fonts:
+        logger.info("[meal_card] 已开启外部字体但关闭了联网渲染，将直接使用系统字体")
 
     title = await resolve_report_title(ctx)
 
-    render_config = config.render
     rounds: List[Tuple[int, int, int]] = [
         (render_config.first_round_timeout_ms, render_config.viewport_width, render_config.viewport_height),
         (
@@ -48,30 +65,82 @@ async def render_image(
             render_config.fallback_viewport_height,
         ),
     ]
-    deadline = time.monotonic() + _TOTAL_RENDER_BUDGET_MS / 1000
-    last_error = "未执行任何渲染尝试"
+    external_attempts: List[Tuple[int, int, int, int, FontService]] = []
+    if external_services:
+        for round_index, (timeout_ms, viewport_width, viewport_height) in enumerate(rounds, start=1):
+            for service in external_services:
+                external_attempts.append((round_index, timeout_ms, viewport_width, viewport_height, service))
 
-    for round_index, (timeout_ms, viewport_width, viewport_height) in enumerate(rounds, start=1):
-        for service in services:
-            if time.monotonic() > deadline:
-                raise RenderFailed(f"渲染总预算（{_TOTAL_RENDER_BUDGET_MS}ms）已耗尽，最后一次错误：{last_error}")
-            image_base64, error = await _render_once(
-                ctx,
-                results=results,
-                config=config,
-                service=service,
-                round_index=round_index,
-                timeout_ms=timeout_ms,
-                viewport_width=viewport_width,
-                viewport_height=viewport_height,
-                platform_name=platform_name,
-                title=title,
+    started_at = time.monotonic()
+    total_deadline = started_at + _TOTAL_RENDER_BUDGET_MS / 1000
+    external_deadline = (
+        total_deadline - _SYSTEM_FALLBACK_RESERVE_MS / 1000 if external_attempts else total_deadline
+    )
+    external_error = ""
+    system_error = ""
+
+    for round_index, timeout_ms, viewport_width, viewport_height, service in external_attempts:
+        remaining_ms = int((external_deadline - time.monotonic()) * 1000)
+        if remaining_ms <= 0:
+            external_error = "外部字体渲染预算已耗尽"
+            logger.warning("[meal_card] 外部字体渲染预算已耗尽，转入系统字体兜底")
+            break
+        image_base64, error = await _render_once(
+            ctx,
+            results=results,
+            config=config,
+            service=service,
+            round_index=round_index,
+            timeout_ms=min(timeout_ms, remaining_ms),
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            platform_name=platform_name,
+            title=title,
+        )
+        if image_base64:
+            return image_base64
+        external_error = error
+
+    if external_attempts and not external_error:
+        external_error = "未执行任何外部字体渲染尝试"
+
+    if external_attempts:
+        system_rounds: List[Tuple[int, int, int]] = [
+            (
+                min(int(render_config.first_round_timeout_ms), _SYSTEM_FALLBACK_RESERVE_MS),
+                render_config.viewport_width,
+                render_config.viewport_height,
             )
-            if image_base64:
-                return image_base64
-            last_error = error
+        ]
+    else:
+        system_rounds = list(rounds)
 
-    raise RenderFailed(f"渲染失败（已尝试 {len(rounds)} 轮 × {len(services)} 个字体服务）：{last_error}")
+    for round_index, (timeout_ms, viewport_width, viewport_height) in enumerate(system_rounds, start=1):
+        remaining_ms = int((total_deadline - time.monotonic()) * 1000)
+        if remaining_ms <= 0:
+            system_error = f"渲染总预算（{_TOTAL_RENDER_BUDGET_MS}ms）已耗尽"
+            break
+        timeout_ms = min(timeout_ms, remaining_ms)
+        image_base64, error = await _render_once(
+            ctx,
+            results=results,
+            config=config,
+            service=SYSTEM_FONT_SERVICE,
+            round_index=round_index,
+            timeout_ms=max(timeout_ms, 1000),
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            platform_name=platform_name,
+            title=title,
+        )
+        if image_base64:
+            if external_attempts:
+                logger.info("[meal_card] 外部字体渲染失败，已回退系统字体出图")
+            return image_base64
+        system_error = error
+
+    external_hint = f"外部字体：{external_error}；" if external_attempts else ""
+    raise RenderFailed(f"渲染失败（{external_hint}系统字体：{system_error or '未执行任何渲染尝试'}）")
 
 
 async def _render_once(

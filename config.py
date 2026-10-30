@@ -26,7 +26,7 @@ from pydantic import Field, create_model
 logger = logging.getLogger(__name__)
 
 # 插件 / 配置版本号（plugin.py、_manifest.json 与本文件保持一致）。
-PLUGIN_VERSION = "1.4.1"
+PLUGIN_VERSION = "1.5.0"
 
 DEFAULT_TEXT_TEMPLATE = "🍚 饭卡状态（{date}）\n{items}\n{unavailable}"
 
@@ -870,8 +870,20 @@ class RenderSection(PluginConfigBase):
     )
     allow_network: bool = Field(
         default=True,
-        description="是否允许渲染页面访问外部网络；字体服务地址需要联网，关闭后页面只能用系统字体",
-        json_schema_extra={"label": "允许联网渲染", "hint": "字体 CDN 需要联网；关闭后只能用系统字体"},
+        description="是否允许渲染页面访问外部网络；外部字体、模板外部图片都需要联网",
+        json_schema_extra={
+            "label": "允许联网渲染",
+            "hint": "页面访问外部网络的总开关；关闭后外部字体不会加载，模板里的外部图片也不会显示",
+        },
+    )
+    use_external_fonts: bool = Field(
+        default=False,
+        description="是否加载外部 Web 字体；默认关闭，直接使用系统中文字体",
+        json_schema_extra={
+            "label": "使用外部字体",
+            "hint": "默认关闭：直接用系统中文字体。开启后按下方字体服务组加载 Google Fonts；"
+            "字体服务不可用或渲染失败时自动回退系统字体。",
+        },
     )
     font_services: List[str] = Field(
         default=[
@@ -882,8 +894,9 @@ class RenderSection(PluginConfigBase):
         json_schema_extra={
             **_list_field(
                 "name=内地;css=https://fonts.loli.net;static=https://gstatic.loli.net",
-                "格式：分号分隔的「字段=值」。字段：name（名称）、css（CSS 基地址）、static（静态字体基地址）。"
-                "按列表顺序作为优先级，渲染失败自动换下一组。",
+                "仅「使用外部字体」开启且允许联网时生效。格式：分号分隔的「字段=值」。"
+                "字段：name（名称）、css（CSS 基地址）、static（静态字体基地址）。"
+                "按列表顺序作为优先级，全部失败会自动回退系统字体。",
             ),
             "label": "字体服务组",
         },

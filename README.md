@@ -25,6 +25,8 @@
 - **两组独立权限**：LLM 工具查询权限 与 `/饭卡` 指令查询权限，各含黑白名单 + 放行指标 + 每对话覆盖。
 - **三种呈现**：文本模板（占位符）、LLM 风格化转述（宿主模型组或自定义 [OI] 兼容服务）、
   图片渲染（HTML 模板 + 占位符，可添加自定义模板文件）。
+- **外部字体可选 + 系统字体回退**：图片默认使用系统中文字体，不依赖 Google Fonts；
+  需要 Noto Sans SC 时可开启外部字体，字体服务不可用或加载失败会自动回退系统字体。
 - **图片页脚可配置**：可关闭图片底部页脚，或自定义页脚文案（默认「由麦麦饭卡插件渲染」）。
 - **WebUI 页面「麦麦饭卡」**：侧边栏插件页面展示各平台当前额度与用量、历史趋势**平滑曲线**
   与最近采样记录；**可同时追踪多个指标**（`[history].chart_metrics` 里增删，最多 6 条），
@@ -238,7 +240,7 @@
 | `platform_count` | int | `1` | 平台槽位数量（改大需重载一次插件） |
 | `broadcast_count` | int | `1` | 播报槽位数量（改大需重载一次插件） |
 | `alert_count` | int | `1` | 警报槽位数量（改大需重载一次插件） |
-| `config_version` | str | `"1.4.1"` | 配置版本（请勿手改） |
+| `config_version` | str | `"1.5.0"` | 配置版本（请勿手改） |
 
 ### 7.2 平台槽位 `[platformN]`
 
@@ -410,8 +412,19 @@
 | `second_round_timeout_ms` | int | `25000` | 第二轮（回退轮）渲染超时（毫秒） |
 | `viewport_width` / `viewport_height` | int | `1000` / `600` | 第一轮视口 |
 | `fallback_viewport_width` / `fallback_viewport_height` | int | `900` / `1200` | 兜底视口 |
-| `allow_network` | bool | `true` | 是否允许渲染页面访问外部网络（加载字体 CDN 需要） |
-| `font_services` | list[str] | 内地 + 海外两组 | 字体服务组，每条 `name=;css=;static=` |
+| `allow_network` | bool | `true` | 页面联网总开关；关闭后外部字体不会加载，模板里的外部图片也不显示 |
+| `use_external_fonts` | bool | `false` | 是否加载外部 Web 字体；默认关闭，直接用系统中文字体 |
+| `font_services` | list[str] | 内地 + 海外两组 | 字体服务组，每条 `name=;css=;static=`；仅在开启外部字体且允许联网时生效 |
+
+**字体回退顺序**：
+
+1. `use_external_fonts=false`（默认）：不请求任何外部字体，直接用系统中文字体出图；
+2. 开启外部字体且 `allow_network=true`：按 `font_services` 顺序尝试加载 Google Fonts；
+3. 字体服务组为空 / 全部非法 / 外部尝试全部失败：自动改用系统字体兜底，不再因为字体问题导致整张图渲染失败；
+4. `use_external_fonts=true` 但 `allow_network=false`：外部字体无法加载，直接使用系统字体。
+
+系统字体栈包含 `Noto Sans SC`、`Source Han Sans SC`、`Microsoft YaHei`、`PingFang SC`、
+`WenQuanYi Micro Hei` 与 `sans-serif`，覆盖 Windows / macOS / Linux 常见中文字体。
 
 **自定义图片模板（可添加，无需改代码）**：往插件数据目录
 `data/plugins/cssqy.mai-meal-card/templates/` 放一个 `.html`（根节点带 `id="meal-card"`，
@@ -441,7 +454,7 @@
 
 - 只有一个平台时，额外提供不带前缀的简写 `{指标id}`。
 - 文本模板用**单花括号** `{...}`；图片模板用**双花括号** `{{...}}`，
-  另有 `{{items_html}}`、`{{title}}`、`{{footer}}`、`{{font_css}}`、`{{font_static}}`。
+  另有 `{{items_html}}`、`{{title}}`、`{{footer}}`、`{{font_links}}`、`{{font_css}}`、`{{font_static}}`。
 - **`{{items_html}}`**：多平台时按平台分组渲染为 `.platform-group` 块（带平台名标题
   `.platform-title` 与左侧色条，样式由模板 CSS 提供）；单平台时为扁平的 `<br>` 列表。
   自定义图片模板可自行给 `.platform-group` / `.platform-title` / `.platform-items` 写样式。
@@ -450,6 +463,10 @@
 - **`{{footer}}`**：图片页脚文案，取 `[render].footer_text`；关闭 `[render].show_footer`
   或文案留空时，模板里的页脚整行会被移除（不留空白）。自定义模板请把页脚写成
   `<div class="footer">{{footer}}</div>`，否则该开关不生效。
+- **`{{font_links}}`**：外部字体的完整 `<link>` 片段；关闭「使用外部字体」或走系统字体兜底时为空，
+  模板不会请求 Google Fonts。内置 `simple` / `dark` / `card` 已改用此占位符。
+- **`{{font_css}}` / `{{font_static}}`**：字体服务组的 CSS / 静态资源基地址，保留给自定义模板；
+  系统字体模式下为空字符串。
 - 未知占位符会被置空并记一条 warning。
 - **图片不展示「原始响应」**：成功的 `raw` 指标（原始响应摘要）不会出现在图片里；
   失败指标照常保留，便于在图上看到失败原因。文本模板与 LLM 工具结果同样默认剔除成功的 `raw`

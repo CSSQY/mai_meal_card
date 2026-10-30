@@ -3,7 +3,8 @@
 模板占位符使用**双花括号** ``{{键}}``（避免与 HTML/CSS 的花括号冲突），键名与文本模板一致，
 另有 ``{{items_html}}``（多行查询项；多平台时按平台分组为 ``.platform-group`` 块）、
 ``{{title}}``（报告标题，取宿主机器人昵称）、``{{footer}}``（页脚，可在渲染配置里开关与自定义文案，
-关闭或留空时整行移除）与 ``{{font_css}}`` / ``{{font_static}}``（由字体服务组注入）。
+关闭或留空时整行移除）、``{{font_links}}``（外部字体 link 整段；系统字体模式下为空）、
+``{{font_css}}`` / ``{{font_static}}``（字体服务组的原始基地址，保留给自定义模板）。
 """
 
 from dataclasses import dataclass
@@ -46,6 +47,10 @@ class FontService:
     name: str
     css_base: str
     static_base: str
+
+
+SYSTEM_FONT_SERVICE = FontService(name="系统字体", css_base="", static_base="")
+"""系统字体配置：不加载任何外部字体，由模板里的系统中文字体栈渲染。"""
 
 
 def _safe_base_url(raw: Any) -> str:
@@ -92,6 +97,20 @@ def parse_font_services(items: Sequence[str]) -> List[FontService]:
             )
         )
     return services
+
+
+def _build_font_links(css_base: str, static_base: str) -> str:
+    """生成外部字体的 ``<link>`` 片段；没有 css 基地址时返回空串。"""
+
+    if not css_base:
+        return ""
+    parts: List[str] = []
+    if static_base:
+        parts.append(f'  <link rel="preconnect" href="{static_base}" />')
+    parts.append(
+        f'  <link href="{css_base}/css2?family=Noto+Sans+SC:wght@400;700;900&display=swap" rel="stylesheet" />'
+    )
+    return "\n".join(parts)
 
 
 def _user_template_dir(ctx: Any) -> Optional[Path]:
@@ -213,8 +232,11 @@ def build_html(
     escaped["items_html"] = items_html
     escaped["title"] = html.escape(str(title or DEFAULT_TITLE))
     escaped["footer"] = html.escape(footer_text)
-    escaped["font_css"] = font_service.css_base
-    escaped["font_static"] = font_service.static_base
+    css_base = _safe_base_url(font_service.css_base)
+    static_base = _safe_base_url(font_service.static_base)
+    escaped["font_css"] = css_base
+    escaped["font_static"] = static_base
+    escaped["font_links"] = _build_font_links(css_base, static_base)
 
     def _replace(match: "re.Match[str]") -> str:
         key = match.group(1)
