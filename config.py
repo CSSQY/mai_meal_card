@@ -26,7 +26,7 @@ from pydantic import Field, create_model
 logger = logging.getLogger(__name__)
 
 # 插件 / 配置版本号（plugin.py、_manifest.json 与本文件保持一致）。
-PLUGIN_VERSION = "1.5.0"
+PLUGIN_VERSION = "1.6.0"
 
 DEFAULT_TEXT_TEMPLATE = "🍚 饭卡状态（{date}）\n{items}\n{unavailable}"
 
@@ -157,12 +157,13 @@ class PlatformSlotConfig(PluginConfigBase):
         description="是否启用此平台（关闭只是临时停用、不清空配置）",
         json_schema_extra={"label": "启用此平台", "hint": "关闭后此平台不参与查询"},
     )
-    adapter: Literal["minimax", "deepseek", "custom"] = Field(
+    adapter: Literal["minimax", "deepseek", "volcengine", "custom"] = Field(
         default="minimax",
-        description="平台类型：minimax=内置 MiniMax TokenPlan 适配；deepseek=内置 DeepSeek 开放平台适配（余额查询）；custom=自定义平台（自行填写地址与取值规则）",
+        description="平台类型：minimax=内置 MiniMax TokenPlan 适配；deepseek=内置 DeepSeek 开放平台适配（余额查询）；volcengine=内置火山方舟 Agent Plan 适配（AFP 额度用量，AK/SK 鉴权）；custom=自定义平台（自行填写地址与取值规则）",
         json_schema_extra={
             "label": "平台类型",
             "hint": "minimax=内置适配（选区域 + 填 TokenPlan 订阅密钥）；deepseek=内置适配（填 API Key 即可查余额）；"
+            "volcengine=内置适配（填 Access Key ID / Secret Access Key 查 AFP 用量）；"
             "custom=自定义平台（自行填写接口地址、鉴权与取值表达式）",
         },
     )
@@ -201,13 +202,32 @@ class PlatformSlotConfig(PluginConfigBase):
             "placeholder": "sk-cp-… 或 sk-…",
         },
     )
+    access_key: str = Field(
+        default="",
+        description="火山方舟 Access Key ID（仅平台类型=volcengine 时使用）",
+        json_schema_extra={
+            "label": "Access Key ID（volcengine）",
+            "hint": "仅「平台类型=volcengine」时生效：在火山引擎控制台「API 访问密钥」获取；该接口不支持方舟 API Key",
+            "placeholder": "AKLT…",
+        },
+    )
+    secret_key: str = Field(
+        default="",
+        description="火山方舟 Secret Access Key（仅平台类型=volcengine 时使用）",
+        json_schema_extra={
+            "label": "Secret Access Key（volcengine）",
+            "hint": "仅「平台类型=volcengine」时生效：与 Access Key ID 配对使用，请勿泄露",
+            "x-widget": "password",
+            "placeholder": "Secret Access Key",
+        },
+    )
     base_url: str = Field(
         default="",
-        description="接口基地址覆盖（minimax / deepseek 通用）；留空则用官方地址",
+        description="接口基地址覆盖（minimax / deepseek / volcengine 通用）；留空则用官方地址",
         json_schema_extra={
-            "label": "自定义基地址（minimax / deepseek）",
-            "hint": "一般留空：minimax 按「区域」自动选择官方地址、deepseek 默认 https://api.deepseek.com；"
-            "仅在官方域名变更或走自建代理时才需要填",
+            "label": "自定义基地址（minimax / deepseek / volcengine）",
+            "hint": "一般留空：minimax 按「区域」自动选择官方地址、deepseek 默认 https://api.deepseek.com、"
+            "volcengine 默认 https://ark.cn-beijing.volcengineapi.com；仅在官方域名变更或走自建代理时才需要填",
             "placeholder": "https://api.deepseek.com",
         },
     )

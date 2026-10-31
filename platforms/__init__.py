@@ -10,6 +10,7 @@ from .base import MetricValue, PlatformAdapter
 from .custom import CustomAdapter
 from .deepseek import DeepSeekAdapter
 from .minimax import MiniMaxAdapter
+from .volcengine import VolcengineAdapter
 
 _REGISTRY: Dict[str, PlatformAdapter] = {}
 
@@ -36,6 +37,7 @@ def list_platforms() -> List[str]:
 # ── 内置平台注册 ──
 register(MiniMaxAdapter())
 register(DeepSeekAdapter())
+register(VolcengineAdapter())
 register(CustomAdapter())
 
 __all__ = [

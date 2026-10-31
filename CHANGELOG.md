@@ -2,6 +2,22 @@
 
 本文件记录「麦麦饭卡」插件的版本变更。`_manifest.json` 的 `changelog` 字段指向本文件。
 
+## [1.6.0] - 2026-11-01
+
+### 新增
+
+- **内置火山方舟 Agent Plan 适配**：平台类型选 `volcengine`，填写 Access Key ID / Secret Access Key 后，
+  调用 `GetAFPUsage`（`POST https://ark.cn-beijing.volcengineapi.com/?Action=GetAFPUsage&Version=2024-01-01`）
+  查询 5 小时 / 近一天 / 近一周 / 近一月四个滚动窗口的 AFP 额度用量。
+- **AFP 指标**：每个窗口产出「剩余百分比」「已用 AFP」「重置倒计时」；另含套餐档位与原始响应。
+- **火山引擎 V4 签名**：使用标准库实现 `HMAC-SHA256` 请求签名（`content-type;host;x-content-sha256;x-date`），
+  不需要额外的火山引擎 SDK；支持自定义基地址。
+
+### 说明
+
+- 该接口仅支持 Access Key 鉴权，**不支持方舟 API Key**；请在火山引擎控制台「API 访问密钥」获取 AK/SK。
+- 新增平台槽位字段 `access_key` / `secret_key`，其他平台类型不受影响。
+
 ## [1.5.0] - 2026-10-30
 
 ### 新增

@@ -6,7 +6,7 @@
 - 插件 ID：`cssqy.mai-meal-card`
 - 目录：`plugins/mai_meal_card/`
 - 宿主版本要求：`1.3.0 ~ 1.3.99`；SDK 要求：`2.10.0 ~ 2.99.99`
-- 内置平台：**MiniMax TokenPlan**、**DeepSeek 开放平台**；另支持**自定义平台**
+- 内置平台：**MiniMax TokenPlan**、**DeepSeek 开放平台**、**火山方舟 Agent Plan**；另支持**自定义平台**
 
 ## 1. 功能特性
 
@@ -16,6 +16,8 @@
   （如 `minimax.interval_remaining`），条件与权限都按这个 id 书写。
 - **支持自定义平台**：平台类型选 `custom` 后自行填写接口地址、鉴权、取值表达式等，无需等待内置适配。
 - **支持 DeepSeek 开放平台**：填 API Key 即可查账户总余额 / 赠金余额 / 充值余额（金额带币种）。
+- **支持火山方舟 Agent Plan**：填 Access Key ID / Secret Access Key 即可查 5 小时 / 近一天 / 近一周 / 近一月
+  四个滚动窗口的 AFP 配额用量、剩余百分比与重置倒计时。
 - **多平台分组展示**：同时查询多个平台时，图片、文本与 LLM 转述都会按平台分组并标注平台名，一眼分清数据来源。
 - **平台适配器架构**：平台差异全部收敛在 `platforms/` 目录，新增内置平台只需实现一个适配器并注册。
 - **LLM 工具 `query_meal_card`**：让智能体查询额度 / 重置倒计时，可按指标与类型过滤。
@@ -119,6 +121,21 @@
 > 查询的是账户余额（总余额 / 赠金 / 充值余额），接口只读、不产生任何费用；
 > 基地址默认 `https://api.deepseek.com`，一般无需填写。
 
+### 4.6 配置一个火山方舟 Agent Plan 平台
+
+在「平台」标签页的 `[platformN]` 里：
+
+| 字段 | 填什么 |
+|---|---|
+| 平台类型 | `volcengine` |
+| 平台标识 | 建议填 `volcengine`（会作为指标 id 前缀，如 `volcengine.afp_5h_remaining`） |
+| Access Key ID | 火山引擎控制台「API 访问密钥」里的 Access Key ID |
+| Secret Access Key | 与 Access Key ID 配对的 Secret Access Key |
+
+> 该接口**只支持 Access Key 鉴权**，不支持方舟 API Key；查询只读、不产生任何费用。
+> 基地址默认 `https://ark.cn-beijing.volcengineapi.com`，通常无需填写。
+> 仅适用于个人版 Agent Plan 套餐；企业版席位用量请使用 `GetSeatAFPUsage`（本插件暂未适配）。
+
 ## 5. 使用示例
 
 ### 5.1 `/饭卡` 指令
@@ -218,7 +235,32 @@
 > 其余条目追加币种后缀（如 `deepseek.balance_total_usd`）。
 > `available` 是文本指标、不参与条件表达式；做余额告警请用 `deepseek.balance_total < 10` 这类数值条件。
 
-### 6.3 自定义平台（平台类型 `custom`）
+### 6.3 火山方舟 Agent Plan（平台类型 `volcengine`）
+
+接口：`POST https://ark.cn-beijing.volcengineapi.com/?Action=GetAFPUsage&Version=2024-01-01`
+（Access Key / HMAC-SHA256 签名）。指标 id 为 `<平台标识>.<指标>`：
+
+| 指标 id | 含义 | 类型 |
+|---|---|---|
+| `volcengine.plan_type` | 套餐档位（Small / Medium / Large / Max） | 文本 |
+| `volcengine.afp_5h_remaining` | 5h窗口剩余 | 百分比 |
+| `volcengine.afp_5h_used` | 5h窗口已用 | 计数（单位 AFP） |
+| `volcengine.afp_5h_reset` | 5h窗口重置倒计时 | 时长 |
+| `volcengine.afp_daily_remaining` | 近一天窗口剩余 | 百分比 |
+| `volcengine.afp_daily_used` | 近一天窗口已用 | 计数（单位 AFP） |
+| `volcengine.afp_daily_reset` | 近一天窗口重置倒计时 | 时长 |
+| `volcengine.afp_weekly_remaining` | 近一周窗口剩余 | 百分比 |
+| `volcengine.afp_weekly_used` | 近一周窗口已用 | 计数（单位 AFP） |
+| `volcengine.afp_weekly_reset` | 近一周窗口重置倒计时 | 时长 |
+| `volcengine.afp_monthly_remaining` | 近一月窗口剩余 | 百分比 |
+| `volcengine.afp_monthly_used` | 近一月窗口已用 | 计数（单位 AFP） |
+| `volcengine.afp_monthly_reset` | 近一月窗口重置倒计时 | 时长 |
+| `volcengine.raw` | 原始响应摘要（排查用） | 文本 |
+
+> 百分比按 `(Quota - Used) / Quota` 计算，语义为「**剩余**」；`ResetTime` 为下一次额度重置时间。
+> 接口返回的 `Quota` / `Used` 单位为 AFP；`afp_*_used` 直接展示该数值。
+
+### 6.4 自定义平台（平台类型 `custom`）
 
 | 指标 id | 含义 |
 |---|---|
@@ -240,14 +282,14 @@
 | `platform_count` | int | `1` | 平台槽位数量（改大需重载一次插件） |
 | `broadcast_count` | int | `1` | 播报槽位数量（改大需重载一次插件） |
 | `alert_count` | int | `1` | 警报槽位数量（改大需重载一次插件） |
-| `config_version` | str | `"1.5.0"` | 配置版本（请勿手改） |
+| `config_version` | str | `"1.6.0"` | 配置版本（请勿手改） |
 
 ### 7.2 平台槽位 `[platformN]`
 
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `enabled` | bool | `true` | 是否启用此平台 |
-| `adapter` | str | `"minimax"` | 平台类型：`minimax` / `deepseek` / `custom` |
+| `adapter` | str | `"minimax"` | 平台类型：`minimax` / `deepseek` / `volcengine` / `custom` |
 | `key` | str | `""` | 平台标识（指标 id 前缀）；留空用 `platformN` |
 | `name` | str | `""` | 显示名称；留空用平台类型名称 |
 
@@ -266,7 +308,16 @@
 | `api_key` | str | `""` | DeepSeek 开放平台 API Key（`sk-` 开头） |
 | `base_url` | str | `""` | 高级：留空用 `https://api.deepseek.com` |
 
-> `region` 仅对 `minimax` 生效；`api_key` 与 `base_url` 为两种内置平台共用的字段。
+**平台类型 = `volcengine` 时：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `access_key` | str | `""` | 火山方舟 Access Key ID |
+| `secret_key` | str | `""` | 与 Access Key ID 配对的 Secret Access Key |
+| `base_url` | str | `""` | 高级：留空用 `https://ark.cn-beijing.volcengineapi.com` |
+
+> `region` 仅对 `minimax` 生效；`api_key` 仅对 `minimax` / `deepseek` 生效；
+> `access_key` / `secret_key` 仅对 `volcengine` 生效；`base_url` 三种内置平台通用。
 
 **平台类型 = `custom` 时：**
 
@@ -621,7 +672,8 @@
 1. 把整个 `mai_meal_card/` 目录放到 MaiBot 的 `plugins/` 下（保持目录名不变）。
 2. 启动 / 重启 MaiBot；插件在插件运行时（Runner）进程中被自动发现并加载。
 3. 首次加载会按配置模型自动生成 `plugins/mai_meal_card/config.toml`；之后修改该文件即热更新。
-4. 在配置页「平台」标签页选择平台类型并填写密钥（minimax：区域 + TokenPlan 订阅密钥；deepseek：API Key）。
+4. 在配置页「平台」标签页选择平台类型并填写密钥（minimax：区域 + TokenPlan 订阅密钥；deepseek：API Key；
+   volcengine：Access Key ID + Secret Access Key）。
 5. 群里发 `/饭卡` 验证；让 LLM 调用 `query_meal_card` 验证工具。
 6. 把 `[plugin].broadcast_count` / `alert_count` 改成需要的数量 → 保存 → 重载插件，
    再到对应标签页填写任务，验证到点播报与命中条件警报。

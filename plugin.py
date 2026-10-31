@@ -4,7 +4,7 @@
 1. ``query_meal_card`` 工具：供 LLM 查询额度 / 用量；
 2. ``/饭卡`` 指令：在指令来源处回复，可选文字 / LLM 转述 / 图片；
 3. 定时播报与条件警报：由 :class:`~.scheduler.ScheduleLoop` 后台驱动；
-4. 平台适配：具体查询由 ``platforms/`` 下的适配器实现（内置 MiniMax TokenPlan、DeepSeek 开放平台与「自定义平台」）。
+4. 平台适配：具体查询由 ``platforms/`` 下的适配器实现（内置 MiniMax TokenPlan、DeepSeek 开放平台、火山方舟 Agent Plan 与「自定义平台」）。
 
 配置采用「固定槽位 + 数量控制」结构（见 ``config.py``）：平台 / 播报 / 警报各自按数量生成
 ``platform1..N`` / ``broadcast1..N`` / ``alert1..N`` 槽位；改大数量后重载一次插件即生成新槽位，
@@ -761,7 +761,10 @@ def _enforce_counts(data: Dict[str, Any]) -> bool:
 def _platform_slot_used(slot: Dict[str, Any]) -> bool:
     """判断平台槽位是否已填写过有意义的内容。"""
 
-    return any(str(slot.get(key) or "").strip() for key in ("key", "name", "api_key", "custom_base_url"))
+    return any(
+        str(slot.get(key) or "").strip()
+        for key in ("key", "name", "api_key", "access_key", "secret_key", "custom_base_url")
+    )
 
 
 def _broadcast_slot_used(slot: Dict[str, Any]) -> bool:
