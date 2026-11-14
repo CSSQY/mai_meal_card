@@ -2,6 +2,16 @@
 
 本文件记录「麦麦饭卡」插件的版本变更。`_manifest.json` 的 `changelog` 字段指向本文件。
 
+## [1.6.1] - 2026-11-15
+
+### 变更
+
+- **适配 MaiBot 1.4.x**：`_manifest.json` 的 `host_application.max_version` 提升至 `1.4.99`，
+  插件在 MaiBot 1.4.x 下不再以兼容模式加载。
+- 在 MaiBot 1.4.5 + `maibot-plugin-sdk` 2.23.0 下验证：配置模型、Command / Tool / API 组件注册、
+  WebUI 声明（协议 v2）与默认配置生成均正常，无需改动插件代码。
+- 插件版本与 `config_version` 同步为 `1.6.1`；配置结构与行为未变。
+
 ## [1.6.0] - 2026-11-01
 
 ### 新增

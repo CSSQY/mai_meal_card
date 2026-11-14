@@ -5,7 +5,7 @@
 
 - 插件 ID：`cssqy.mai-meal-card`
 - 目录：`plugins/mai_meal_card/`
-- 宿主版本要求：`1.3.0 ~ 1.3.99`；SDK 要求：`2.10.0 ~ 2.99.99`
+- 宿主版本要求：`1.3.0 ~ 1.4.99`；SDK 要求：`2.10.0 ~ 2.99.99`
 - 内置平台：**MiniMax TokenPlan**、**DeepSeek 开放平台**、**火山方舟 Agent Plan**；另支持**自定义平台**
 
 ## 1. 功能特性
@@ -282,7 +282,7 @@
 | `platform_count` | int | `1` | 平台槽位数量（改大需重载一次插件） |
 | `broadcast_count` | int | `1` | 播报槽位数量（改大需重载一次插件） |
 | `alert_count` | int | `1` | 警报槽位数量（改大需重载一次插件） |
-| `config_version` | str | `"1.6.0"` | 配置版本（请勿手改） |
+| `config_version` | str | `"1.6.1"` | 配置版本（请勿手改） |
 
 ### 7.2 平台槽位 `[platformN]`
 
